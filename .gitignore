@@ -1,7 +1,6 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 .venv/
 venv/
 env/
@@ -15,7 +14,7 @@ dist/
 .DS_Store
 ._*
 
-# Наши сборки и логи
+# Сборки и логи
 installer/
 NotifyMe.dmg
 *.log
