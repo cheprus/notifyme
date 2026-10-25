@@ -12,7 +12,8 @@ from datetime import datetime, timedelta
 
 from AppKit import (
     NSMenu, NSMenuItem, NSApplication, NSColor, NSAttributedString,
-    NSForegroundColorAttributeName, NSTimer, NSRunLoop, NSRunLoopCommonModes
+    NSForegroundColorAttributeName, NSTimer, NSRunLoop, NSRunLoopCommonModes,
+    NSImage
 )
 from Foundation import NSObject
 
@@ -23,7 +24,7 @@ from calendar_service import (
     get_dialog_message
 )
 from state_manager import load_state, save_state
-from utils import get_gradient_color, get_status_color, format_time_delta
+from utils import get_gradient_color, get_status_color, format_time_delta, format_event_date
 from calendar_icon import generate_hourglass_icon
 
 class MenuItemHandler(NSObject):
@@ -105,6 +106,9 @@ class NotifyMeApp(rumps.App):
             print(f"Background thread error (update): {e}")
             self.is_updating = False
 
+    def open_calendar(self, sender):
+        subprocess.Popen(["open", "-a", "Calendar"])
+
     def apply_update(self, data):
         events, week_events = data
         self.is_updating = False
@@ -117,6 +121,8 @@ class NotifyMeApp(rumps.App):
         self.menu_handlers = []
         
         now = datetime.now()
+        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        
         ongoing = [ev for ev in events if ev["start"] <= now <= ev["end"]]
         future = [ev for ev in events if ev["start"] > now]
         finished = [ev for ev in events if ev["end"] < now]
@@ -166,18 +172,43 @@ class NotifyMeApp(rumps.App):
         if not events:
             add_colored_item("No events today", NSColor.grayColor(), enabled=False)
         
-        if week_events:
+        # Фильтруем события на неделю: исключаем всё, что начинается сегодня
+        filtered_week_events = [ev for ev in week_events if ev["start"] >= tomorrow]
+        
+        if filtered_week_events:
             self.menu.add(rumps.separator)
             add_colored_item("— Next 7 Days —", NSColor.grayColor(), enabled=False)
-            for ev in week_events[:10]:
-                date_str = ev['start'].strftime('%d.%m %H:%M')
+            
+            # Берем только первые 10 для отображения
+            display_events = filtered_week_events[:10]
+            total_events = len(display_events)
+            
+            for i, ev in enumerate(display_events):
+                # Плавный градиент сверху вниз в зависимости от индекса строки
+                # (0.0 для первой строки, 1.0 для последней)
+                t = i / (total_events - 1) if total_events > 1 else 0.0
+                
+                # Начальный цвет (темный фиолетовый): (0.5, 0.3, 0.8)
+                # Конечный цвет (светлый сиреневый): (0.85, 0.7, 1.0)
+                r = 0.5 + (0.85 - 0.5) * t
+                g = 0.3 + (0.7 - 0.3) * t
+                b = 0.8 + (1.0 - 0.8) * t
+                
+                row_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, 1.0)
+                
+                date_str = format_event_date(ev['start'], now)
                 title = f"{date_str} | {ev['title']}"
-                lavender_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(0.65, 0.5, 0.9, 1.0)
-                add_colored_item(title, lavender_color, url=ev["url"])
-            if len(week_events) > 10:
-                add_colored_item(f"... and {len(week_events) - 10} more", NSColor.grayColor(), enabled=False)
+                
+                add_colored_item(title, row_color, url=ev["url"])
+                
+            if len(filtered_week_events) > 10:
+                add_colored_item(f"... and {len(filtered_week_events) - 10} more", NSColor.grayColor(), enabled=False)
         
         self.menu.add(rumps.separator)
+        
+        calendar_item = rumps.MenuItem("📅 Calendar", callback=self.open_calendar)
+        self.menu.add(calendar_item)
+        
         quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
         self.menu.add(quit_item)
 
@@ -269,12 +300,15 @@ class NotifyMeApp(rumps.App):
         now = datetime.now()
         lines = []
         first_url = None
+        has_link = False
+        
         for ev in events_data:
             msg = get_dialog_message(ev["start"], now)
             lines.append(f"{msg}:")
             lines.append(f"  {ev['title']}")
             if ev["url"]:
-                lines.append(f"  🔗 {ev['url']}")
+                has_link = True
+                lines.append(f"  🔗 Link available (click 'Open Link' below)")
                 if first_url is None:
                     first_url = ev["url"]
             lines.append("")
@@ -282,13 +316,13 @@ class NotifyMeApp(rumps.App):
         full_text = "\n".join(lines)
         safe_text = full_text.replace('"', '\\"').replace("'", "\\'")
         
-        if first_url:
+        if has_link and first_url:
             safe_url = first_url.replace('"', '\\"')
             script = f'''
             tell application "System Events"
                 activate
-                set dialogResult to display dialog "{safe_text}" buttons {{"Open link", "Close"}} default button "Close" with title "⏰ Reminders" with icon caution
-                if button returned of dialogResult is "Open link" then
+                set dialogResult to display dialog "{safe_text}" buttons {{"Close", "Open Link"}} default button "Open Link" with title "⏰ Meeting Reminder" with icon note
+                if button returned of dialogResult is "Open Link" then
                     do shell script "open {safe_url}"
                 end if
             end tell
@@ -297,7 +331,7 @@ class NotifyMeApp(rumps.App):
             script = f'''
             tell application "System Events"
                 activate
-                display dialog "{safe_text}" buttons {{"Close"}} default button "Close" with title "⏰ Reminders" with icon caution
+                display dialog "{safe_text}" buttons {{"Close"}} default button "Close" with title "⏰ Meeting Reminder" with icon note
             end tell
             '''
         

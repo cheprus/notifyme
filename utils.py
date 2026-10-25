@@ -20,12 +20,29 @@ def format_time_delta(minutes):
         return f"{hours}h"
     return f"{mins}m"
 
+def format_event_date(event_dt, now):
+    """
+    Formats date for the week view.
+    If event is tomorrow -> 'Tomorrow 14:00'
+    If event is this week -> 'Mon 14:00'
+    Otherwise -> '28.10 14:00'
+    """
+    event_date = event_dt.date()
+    today_date = now.date()
+    delta_days = (event_date - today_date).days
+    
+    if delta_days == 1:
+        day_str = "Tomorrow"
+    elif 2 <= delta_days <= 6:
+        day_str = event_dt.strftime("%a") # Mon, Tue, etc.
+    else:
+        day_str = event_dt.strftime("%d.%m")
+        
+    return f"{day_str} {event_dt.strftime('%H:%M')}"
+
 def get_gradient_color(delta_minutes, is_ongoing=False):
-    """
-    Returns NSColor based on urgency gradient.
-    """
+    """Returns NSColor based on urgency gradient."""
     if is_ongoing:
-        # Ongoing events: Red -> Orange -> Yellow -> Lavender -> Fading Purple
         t = min(delta_minutes, 120.0)
         if t <= 10:
             local_t = t / 10.0
@@ -40,7 +57,6 @@ def get_gradient_color(delta_minutes, is_ongoing=False):
             local_t = min((t - 60) / 60.0, 1.0)
             rgb = interpolate_color((0.7, 0.3, 1.0), (0.5, 0.2, 0.7), local_t)
     else:
-        # Future events: Red -> Orange -> Magenta -> Pink -> Lavender -> Blue
         t = min(delta_minutes, 180.0)
         if t <= 5:
             rgb = (1.0, 0.0, 0.0)
@@ -60,13 +76,11 @@ def get_gradient_color(delta_minutes, is_ongoing=False):
     return NSColor.colorWithCalibratedRed_green_blue_alpha_(rgb[0], rgb[1], rgb[2], 1.0)
 
 def get_status_color(events):
-    """
-    Returns (status_text, color) for the tray icon.
-    """
+    """Returns (status_text, color) for the tray icon."""
     now = datetime.now()
     
     if not events:
-        return "No events", (0.2, 0.8, 0.2) # Green
+        return "No events", (0.2, 0.8, 0.2)
 
     next_future = None
     min_delta_future = float('inf')
@@ -78,31 +92,25 @@ def get_status_color(events):
 
     ongoing_events = [ev for ev in events if ev["start"] <= now <= ev["end"]]
 
-    # Urgent (Red)
     if next_future and min_delta_future <= 5:
         return f"In {format_time_delta(min_delta_future)}", (1.0, 0.0, 0.0)
 
-    # Just started (Red)
     for ev in ongoing_events:
         minutes_ago = int((now - ev["start"]).total_seconds() // 60)
         if minutes_ago <= 10:
             return f"Ongoing {format_time_delta(minutes_ago)}", (1.0, 0.0, 0.0)
 
-    # Soon (Crimson)
     if next_future and min_delta_future <= 30:
         return f"In {format_time_delta(min_delta_future)}", (1.0, 0.1, 0.3)
 
-    # Not so soon (Pink)
     if next_future and min_delta_future <= 120:
         return f"In {format_time_delta(min_delta_future)}", (1.0, 0.5, 0.6)
 
-    # Ongoing for a while (Lavender)
     if ongoing_events:
         oldest = min(ongoing_events, key=lambda e: e["start"])
         minutes_ago = int((now - oldest["start"]).total_seconds() // 60)
         return f"Ongoing {format_time_delta(minutes_ago)}", (0.6, 0.4, 1.0)
 
-    # Far away (Blue)
     if next_future:
         return f"In {format_time_delta(min_delta_future)}", (0.0, 0.4, 1.0)
 
