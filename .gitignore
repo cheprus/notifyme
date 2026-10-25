@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# PyInstaller / py2app
+build/
+dist/
+*.spec
+
+# macOS
+.DS_Store
+._*
+
+# Наши сборки и логи
+installer/
+NotifyMe.dmg
+*.log
+icon.iconset/
+*.icns
+
+# Состояние приложения
+.notifyme_state.json
