@@ -1,0 +1,5 @@
+[project]
+name = "NotifyMe"
+version = "1.0.0"
+description = "A macOS menu bar application which tracks upcoming calendar events and sends reminders."
+requires-python = ">=3.13"

@@ -1,8 +1,15 @@
 # app.py
+import sys
+
+# Require Python 3.13 or newer
+if sys.version_info < (3, 13):
+    print("Error: NotifyMe requires Python 3.13 or newer.")
+    print(f"Current version: {sys.version.split()[0]}")
+    sys.exit(1)
+
 import rumps
 import subprocess
 import os
-import sys
 import time
 import fcntl
 import objc

@@ -1,3 +1,4 @@
+# Requires Python 3.13+
 rumps
 pyobjc-framework-Cocoa
 pyobjc-framework-EventKit
