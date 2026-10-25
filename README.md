@@ -1,26 +1,26 @@
 # NotifyMe
 
-Приложение для macOS, которое показывает встречи из Календаря в строке меню и напоминает о них.
+A macOS menu bar application which tracks upcoming calendar events and sends reminders.
 
-## Возможности
-- Иконка-песочница в трее с анимацией пересыпания песка.
-- Цветовая градация важности встреч (от красного к синему).
-- Всплывающие напоминания за 5 минут до встречи (с автозакрытием через 15 минут).
-- Список встреч на сегодня и на неделю вперёд.
-- Мелодичный звуковой сигнал.
+## Features
+- Animated hourglass icon in the menu bar.
+- Color-coded urgency for upcoming events (from red to blue).
+- Pop-up reminders 5 minutes before an event starts (auto-dismisses after 15 minutes).
+- List of today's events and a 7-day forecast.
+- Melodic notification sound.
 
-## Установка
-1. Скачайте `NotifyMe.dmg`.
-2. Откройте DMG и запустите `Install_NotifyMe.command`.
-3. Если macOS блокирует скрипт, зайдите в Системные настройки -> Конфиденциальность и безопасность и нажмите «Всё равно открыть».
+## Installation
+1. Download `NotifyMe.dmg`.
+2. Open the DMG and run `Install_NotifyMe.command`.
+3. If macOS blocks the script, go to System Settings -> Privacy & Security and click "Open Anyway".
 
-## Запуск
-Для запуска используется команда `notifyme` (требуется предварительная настройка символической ссылки в `/usr/local/bin`).
+## Usage
+The app is controlled via the `notifyme` command (requires a symlink in `/usr/local/bin`).
 
-- `notifyme` — запустить приложение.
-- `notifyme stop` — остановить приложение.
-- `notifyme restart` — перезапустить приложение.
+- `notifyme` — start the app.
+- `notifyme stop` — stop the app.
+- `notifyme restart` — restart the app.
 
-## Разработка
-Для пересборки приложения, установки в `/Applications` и создания DMG используйте скрипт:
-`./build_all.sh`
+## Development
+To rebuild the app, install it to `/Applications`, and create a DMG, run:
+`./build.sh`

@@ -23,7 +23,7 @@ from calendar_service import (
     get_dialog_message
 )
 from state_manager import load_state, save_state
-from ui import get_gradient_color, get_status_color, format_time_delta
+from utils import get_gradient_color, get_status_color, format_time_delta
 from calendar_icon import generate_hourglass_icon
 
 class MenuItemHandler(NSObject):
@@ -52,7 +52,7 @@ class NotifyMeApp(rumps.App):
         self.update_queue = queue.Queue()
         self.notification_queue = queue.Queue()
         
-        self.last_status = ("Нет встреч", (0.2, 0.8, 0.2))
+        self.last_status = ("No events", (0.2, 0.8, 0.2))
         
         self.anim_state = "pouring"
         self.pour_progress = 0.0
@@ -102,7 +102,7 @@ class NotifyMeApp(rumps.App):
             week_events = get_week_events(self.store)
             self.update_queue.put((events, week_events))
         except Exception as e:
-            print(f"Ошибка в фоновом потоке (update): {e}")
+            print(f"Background thread error (update): {e}")
             self.is_updating = False
 
     def apply_update(self, data):
@@ -137,49 +137,48 @@ class NotifyMeApp(rumps.App):
             self.menu.add(item)
         
         if ongoing:
-            add_colored_item("— Идут сейчас —", NSColor.grayColor(), enabled=False)
+            add_colored_item("— Ongoing —", NSColor.grayColor(), enabled=False)
             for ev in ongoing:
                 minutes_ago = int((now - ev["start"]).total_seconds() // 60)
                 item_color = get_gradient_color(minutes_ago, is_ongoing=True)
-                title = f"{ev['start'].strftime('%H:%M')} | {ev['title']} | Идет {format_time_delta(minutes_ago)}"
+                title = f"{ev['start'].strftime('%H:%M')} | {ev['title']} | {format_time_delta(minutes_ago)}"
                 add_colored_item(title, item_color, url=ev["url"])
         
         if future:
             if ongoing:
                 self.menu.add(rumps.separator)
-            add_colored_item("— Скоро (сегодня) —", NSColor.grayColor(), enabled=False)
+            add_colored_item("— Upcoming (Today) —", NSColor.grayColor(), enabled=False)
             for ev in future:
                 delta = (ev["start"] - now).total_seconds() / 60.0
                 item_color = get_gradient_color(delta, is_ongoing=False)
-                title = f"{ev['start'].strftime('%H:%M')} | {ev['title']} | Через {format_time_delta(delta)}"
+                title = f"{ev['start'].strftime('%H:%M')} | {ev['title']} | In {format_time_delta(delta)}"
                 add_colored_item(title, item_color, url=ev["url"])
         
         if finished:
             if ongoing or future:
                 self.menu.add(rumps.separator)
-            add_colored_item("— Завершились (сегодня) —", NSColor.grayColor(), enabled=False)
+            add_colored_item("— Finished (Today) —", NSColor.grayColor(), enabled=False)
             for ev in finished:
                 minutes_ago = int((now - ev["end"]).total_seconds() // 60)
-                title = f"{ev['start'].strftime('%H:%M')} | {ev['title']} | Завершилась {format_time_delta(minutes_ago)} назад"
+                title = f"{ev['start'].strftime('%H:%M')} | {ev['title']} | Ended {format_time_delta(minutes_ago)} ago"
                 add_colored_item(title, NSColor.grayColor(), enabled=False)
         
         if not events:
-            add_colored_item("Нет встреч на сегодня", NSColor.grayColor(), enabled=False)
+            add_colored_item("No events today", NSColor.grayColor(), enabled=False)
         
         if week_events:
             self.menu.add(rumps.separator)
-            add_colored_item("— На неделю вперёд —", NSColor.grayColor(), enabled=False)
+            add_colored_item("— Next 7 Days —", NSColor.grayColor(), enabled=False)
             for ev in week_events[:10]:
                 date_str = ev['start'].strftime('%d.%m %H:%M')
                 title = f"{date_str} | {ev['title']}"
-                # Приглушённый фиолетовый (Lavender)
                 lavender_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(0.65, 0.5, 0.9, 1.0)
                 add_colored_item(title, lavender_color, url=ev["url"])
             if len(week_events) > 10:
-                add_colored_item(f"... и ещё {len(week_events) - 10} событий", NSColor.grayColor(), enabled=False)
+                add_colored_item(f"... and {len(week_events) - 10} more", NSColor.grayColor(), enabled=False)
         
         self.menu.add(rumps.separator)
-        quit_item = rumps.MenuItem("Выход", callback=rumps.quit_application)
+        quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
         self.menu.add(quit_item)
 
     def trigger_notification_check_(self, sender):
@@ -207,7 +206,7 @@ class NotifyMeApp(rumps.App):
             else:
                 self.is_checking = False
         except Exception as e:
-            print(f"Ошибка в фоновом потоке (check): {e}")
+            print(f"Background thread error (check): {e}")
             self.is_checking = False
 
     def show_notification_on_main(self, events_data):
@@ -254,7 +253,6 @@ class NotifyMeApp(rumps.App):
         if not events_data:
             return
         
-        # --- ЗВУКОВОЕ ОПОВЕЩЕНИЕ (Мелодичное, но настойчивое) ---
         def play_alert():
             sounds = [
                 "/System/Library/Sounds/Glass.aiff",
@@ -289,8 +287,8 @@ class NotifyMeApp(rumps.App):
             script = f'''
             tell application "System Events"
                 activate
-                set dialogResult to display dialog "{safe_text}" buttons {{"Открыть первую ссылку", "Закрыть"}} default button "Закрыть" with title "⏰ Напоминания" with icon caution
-                if button returned of dialogResult is "Открыть первую ссылку" then
+                set dialogResult to display dialog "{safe_text}" buttons {{"Open link", "Close"}} default button "Close" with title "⏰ Reminders" with icon caution
+                if button returned of dialogResult is "Open link" then
                     do shell script "open {safe_url}"
                 end if
             end tell
@@ -299,7 +297,7 @@ class NotifyMeApp(rumps.App):
             script = f'''
             tell application "System Events"
                 activate
-                display dialog "{safe_text}" buttons {{"Закрыть"}} default button "Закрыть" with title "⏰ Напоминания" with icon caution
+                display dialog "{safe_text}" buttons {{"Close"}} default button "Close" with title "⏰ Reminders" with icon caution
             end tell
             '''
         
@@ -323,7 +321,7 @@ if __name__ == "__main__":
     try:
         fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except IOError:
-        print("NotifyMe уже запущен. Завершаем второй экземпляр.")
+        print("NotifyMe is already running. Exiting second instance.")
         sys.exit(0)
     
     try:

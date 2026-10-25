@@ -1,41 +1,30 @@
 #!/bin/bash
-
-# Останавливаем скрипт при любой ошибке
 set -e
 
-# Переходим в папку проекта
-cd /Users/chep/dev/python/notyfyme
+echo "=== 1. Building application ==="
+rm -rf build dist
+/Library/Frameworks/Python.framework/Versions/3.13/bin/pyinstaller --windowed --name NotifyMe --icon=myicon.icns app.py
 
-echo "=== 1. Очистка старых сборок ==="
-rm -rf build dist NotifyMe.spec
+echo "=== 2. Re-signing application ==="
+codesign --force --deep --sign - dist/NotifyMe.app
 
-echo "=== 2. Сборка через PyInstaller ==="
-/Library/Frameworks/Python.framework/Versions/3.13/bin/pyinstaller --windowed --name NotifyMe app.py
-
-echo "=== 3. Добавление ключа доступа к Календарю в Info.plist ==="
-# Путь к Info.plist внутри собранного приложения
-PLIST_PATH="dist/NotifyMe.app/Contents/Info.plist"
-
-# Проверяем, существует ли файл
-if [ -f "$PLIST_PATH" ]; then
-    # Добавляем ключ NSCalendarsFullAccessUsageDescription (если его нет)
-    /usr/libexec/PlistBuddy -c "Add :NSCalendarsFullAccessUsageDescription string 'NotifyMe показывает ваши встречи и напоминает о них.'" "$PLIST_PATH" 2>/dev/null || \
-    /usr/libexec/PlistBuddy -c "Set :NSCalendarsFullAccessUsageDescription 'NotifyMe показывает ваши встречи и напоминает о них.'" "$PLIST_PATH"
-    echo "Ключ доступа к Календарю добавлен."
-else
-    echo "ОШИБКА: Info.plist не найден по пути $PLIST_PATH"
-    exit 1
-fi
-
-echo "=== 4. Копирование в /Applications ==="
-# Удаляем старую версию, если есть
+echo "=== 3. Installing to /Applications ==="
+pkill -f NotifyMe || true
 rm -rf /Applications/NotifyMe.app
-
-# Копируем новую
 cp -R dist/NotifyMe.app /Applications/
-
-echo "=== 5. Снятие карантина ==="
 xattr -dr com.apple.quarantine /Applications/NotifyMe.app
+codesign --force --deep --sign - /Applications/NotifyMe.app
 
-echo "=== 6. Готово! Запускаем ==="
-open /Applications/NotifyMe.app
+echo "=== 4. Building DMG for colleagues ==="
+rm -rf installer
+mkdir -p installer
+cp -R dist/NotifyMe.app installer/
+cp "Install_NotifyMe.command" installer/ 2>/dev/null || true
+cp entitlements.plist installer/ 2>/dev/null || true
+chmod +x "installer/Install_NotifyMe.command" 2>/dev/null || true
+rm -f NotifyMe.dmg
+create-dmg --volname "NotifyMe Installer" --window-size 500 300 --icon-size 100 --icon "NotifyMe.app" 130 150 --app-drop-link 370 150 "NotifyMe.dmg" "installer"
+
+echo "=== DONE! App installed to /Applications. ==="
+echo "To start use run_notifyme.command or:"
+echo "/Applications/NotifyMe.app/Contents/MacOS/NotifyMe"

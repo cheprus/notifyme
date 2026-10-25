@@ -10,9 +10,9 @@ def load_state():
         try:
             with open(STATE_FILE, "r") as f:
                 data = json.load(f)
-                # Проверяем, не устарело ли состояние (сменился день)
+                # Reset if the day has changed
                 if data.get("date") != datetime.now().strftime("%Y-%m-%d"):
-                    return set() # Сброс
+                    return set()
                 return set(data.get("ids", []))
         except Exception:
             pass
