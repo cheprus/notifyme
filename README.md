@@ -17,6 +17,8 @@ A macOS menu bar application which tracks upcoming calendar events and sends rem
 ## Usage
 The app is controlled via the `notifyme` command (requires a symlink in `/usr/local/bin`).
 
+`sudo ln -sf /Users/chep/dev/python/notifyme/notifyme.sh /usr/local/bin/notifyme`
+
 - `notifyme` — start the app.
 - `notifyme stop` — stop the app.
 - `notifyme restart` — restart the app.

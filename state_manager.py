@@ -1,16 +1,15 @@
 # state_manager.py
 import os
 import json
-from datetime import datetime
-
-STATE_FILE = os.path.expanduser("~/.notifyme_state.json")
+from datetime import datetime, timedelta
+from config import STATE_FILE, ensure_config_dir
 
 def load_state():
+    ensure_config_dir()
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r") as f:
                 data = json.load(f)
-                # Reset if the day has changed
                 if data.get("date") != datetime.now().strftime("%Y-%m-%d"):
                     return set()
                 return set(data.get("ids", []))
@@ -19,6 +18,7 @@ def load_state():
     return set()
 
 def save_state(notified_ids):
+    ensure_config_dir()
     try:
         data = {
             "date": datetime.now().strftime("%Y-%m-%d"),

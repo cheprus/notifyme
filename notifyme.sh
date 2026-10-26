@@ -1,46 +1,39 @@
 #!/bin/bash
-
-# Путь к приложению (в /Applications)
 APP_PATH="/Applications/NotifyMe.app/Contents/MacOS/NotifyMe"
 
-# Проверка, запущен ли процесс
 is_running() {
     pgrep -f "$APP_PATH" > /dev/null
 }
 
-# Запуск
 start_app() {
     if is_running; then
-        echo "NotifyMe уже запущен."
+        echo "NotifyMe is already running."
         return
     fi
     if [ ! -f "$APP_PATH" ]; then
-        echo "Ошибка: приложение не найдено в /Applications"
+        echo "Error: Application not found in /Applications"
         return 1
     fi
     nohup "$APP_PATH" > /tmp/notifyme.log 2>&1 &
-    echo "NotifyMe запущен (PID: $!)"
+    echo "NotifyMe started (PID: $!)"
 }
 
-# Остановка
 stop_app() {
     if ! is_running; then
-        echo "NotifyMe не запущен."
+        echo "NotifyMe is not running."
         return
     fi
     pkill -f "$APP_PATH"
-    echo "NotifyMe остановлен."
+    echo "NotifyMe stopped."
 }
 
-# Перезапуск
 restart_app() {
-    echo "Перезапуск..."
+    echo "Restarting..."
     stop_app
     sleep 1
     start_app
 }
 
-# Обработка аргументов
 case "$1" in
     start|"")
         start_app
@@ -52,7 +45,7 @@ case "$1" in
         restart_app
         ;;
     *)
-        echo "Использование: notifyme [start|stop|restart]"
+        echo "Usage: notifyme [start|stop|restart]"
         exit 1
         ;;
 esac
