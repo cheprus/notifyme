@@ -192,7 +192,6 @@ class NotifyMeApp(rumps.App):
             
             for i, ev in enumerate(display_events):
                 # Плавный градиент сверху вниз в зависимости от индекса строки
-                # (0.0 для первой строки, 1.0 для последней)
                 t = i / (total_events - 1) if total_events > 1 else 0.0
                 
                 # Начальный цвет (темный фиолетовый): (0.5, 0.3, 0.8)
@@ -291,19 +290,6 @@ class NotifyMeApp(rumps.App):
         if not events_data:
             return
         
-        def play_alert():
-            sounds = [
-                "/System/Library/Sounds/Glass.aiff",
-                "/System/Library/Sounds/Ping.aiff",
-                "/System/Library/Sounds/Glass.aiff"
-            ]
-            for sound in sounds:
-                if os.path.exists(sound):
-                    subprocess.Popen(["afplay", sound]).wait()
-                    time.sleep(0.2)
-        
-        threading.Thread(target=play_alert, daemon=True).start()
-        
         now = datetime.now()
         lines = []
         first_url = None
@@ -342,18 +328,45 @@ class NotifyMeApp(rumps.App):
             end tell
             '''
         
-        process = subprocess.Popen(["osascript", "-e", script])
+        sound_process = None
         
+        # Запускаем окно (оно блокирует этот поток, пока не нажмут кнопку)
+        dialog_process = subprocess.Popen(["osascript", "-e", script])
+        
+        def play_alarm():
+            nonlocal sound_process
+            sound_path = "/System/Library/Sounds/Hero.aiff"
+            if os.path.exists(sound_path):
+                while True:
+                    sound_process = subprocess.Popen(["afplay", sound_path])
+                    sound_process.wait()
+                    if dialog_process.poll() is not None:
+                        break
+                    time.sleep(0.5)
+        
+        alarm_thread = threading.Thread(target=play_alarm, daemon=True)
+        alarm_thread.start()
+        
+        # Ждём закрытия окна
+        dialog_process.wait()
+        
+        # Останавливаем звук
+        if sound_process and sound_process.poll() is None:
+            sound_process.terminate()
+            try:
+                sound_process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                sound_process.kill()
+                
         def kill_dialog():
-            if process.poll() is None:
-                process.terminate()
+            if dialog_process.poll() is None:
+                dialog_process.terminate()
                 try:
-                    process.wait(timeout=2)
+                    dialog_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    dialog_process.kill()
         
-        timer = threading.Timer(900, kill_dialog)
-        timer.start()
+        threading.Timer(900, kill_dialog).start()
 
 if __name__ == "__main__":
     lock_file_path = "/tmp/notifyme.lock"
