@@ -14,8 +14,8 @@
 import ctypes
 import threading
 from ctypes import (
-    c_uint32, c_int, c_void_p, c_char_p, c_double,
-    byref, Structure, POINTER, CFUNCTYPE
+    c_uint32, c_int, c_void_p, c_char_p,
+    byref, Structure, POINTER,
 )
 
 # ---------- Константы CoreAudio ----------
@@ -23,43 +23,25 @@ from ctypes import (
 kAudioObjectSystemObject = 1
 kAudioObjectPropertyScopeGlobal = 1  # 'glob'
 kAudioObjectPropertyElementMaster = 0
+kAudioObjectPropertyElementMain = 0
 
 kAudioHardwarePropertyDevices = 0x64657623  # 'dev#'
 kAudioHardwarePropertyDefaultOutputDevice = 0x644f7574  # 'dOut'
 
 kAudioDevicePropertyDeviceNameCFString = 0x6c6e616d  # 'lnam'
-kAudioDevicePropertyStreamConfiguration = 0x736c6179  # 'slay'
+kAudioDevicePropertyStreams = 0x73746d23  # 'stm#'
 kAudioDevicePropertyScopeOutput = 0x6f757470  # 'outp'
 
-kAudioObjectPropertyElementMain = 0
-
-# Тип для AudioObjectID / AudioDeviceID — UInt32
 AudioObjectID = c_uint32
 AudioDeviceID = c_uint32
 OSStatus = c_int
 
-# ---------- Структуры ----------
 
 class AudioObjectPropertyAddress(Structure):
     _fields_ = [
         ("mSelector", c_uint32),
         ("mScope", c_uint32),
         ("mElement", c_uint32),
-    ]
-
-
-class AudioBuffer(Structure):
-    _fields_ = [
-        ("mNumberChannels", c_uint32),
-        ("mDataByteSize", c_uint32),
-        ("mData", c_void_p),
-    ]
-
-
-class AudioBufferList(Structure):
-    _fields_ = [
-        ("mNumberBuffers", c_uint32),
-        ("mBuffers", AudioBuffer * 1),  # переменная длина — читаем вручную
     ]
 
 
@@ -70,7 +52,6 @@ try:
         "/System/Library/Frameworks/CoreAudio.framework/Versions/A/CoreAudio"
     )
 except OSError:
-    # Fallback для старых путей
     try:
         _coreaudio = ctypes.CDLL(
             "/System/Library/Frameworks/CoreAudio.framework/CoreAudio"
@@ -80,7 +61,6 @@ except OSError:
 
 
 if _coreaudio is not None:
-    # Прототипы
     _coreaudio.AudioObjectGetPropertyDataSize.argtypes = [
         AudioObjectID,
         POINTER(AudioObjectPropertyAddress),
@@ -110,7 +90,6 @@ if _coreaudio is not None:
     ]
     _coreaudio.AudioObjectSetPropertyData.restype = OSStatus
 
-    # CoreFoundation для работы с CFString
     try:
         _cf = ctypes.CDLL(
             "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
@@ -127,10 +106,8 @@ if _coreaudio is not None:
     except OSError:
         _HAS_CF = False
 
-# Константа kCFStringEncodingUTF8
-_kCFStringEncodingUTF8 = 0x08000100
 
-# Блокировка — чтобы два будильника не переключали устройство одновременно
+_kCFStringEncodingUTF8 = 0x08000100
 _LOCK = threading.RLock()
 
 
@@ -161,14 +138,12 @@ def _get_property_data(object_id, address, data_size, out_buffer):
 
 
 def _get_device_name(device_id):
-    """Возвращает имя устройства как str или None."""
     if not _HAS_CF:
         return None
     address = _make_address(kAudioDevicePropertyDeviceNameCFString)
     size = _get_property_data_size(device_id, address)
     if size is None or size == 0:
         return None
-    # CFStringRef — указатель (8 байт на 64-битной системе)
     cfstr_ref = c_void_p()
     size = c_uint32(ctypes.sizeof(cfstr_ref))
     status = _coreaudio.AudioObjectGetPropertyData(
@@ -177,13 +152,11 @@ def _get_device_name(device_id):
     if status != 0 or not cfstr_ref.value:
         return None
     try:
-        # Пытаемся получить указатель на C-строку напрямую
         ptr = _cf.CFStringGetCStringPtr(cfstr_ref.value, _kCFStringEncodingUTF8)
         if ptr:
             return ptr.decode("utf-8", errors="replace")
-        # Fallback: копируем в буфер
         length = _cf.CFStringGetLength(cfstr_ref.value)
-        buf_size = (length + 1) * 4  # UTF-8 может занимать до 4 байт на символ
+        buf_size = (length + 1) * 4
         buf = ctypes.create_string_buffer(buf_size)
         ok = _cf.CFStringGetCString(cfstr_ref.value, buf, buf_size, _kCFStringEncodingUTF8)
         if ok:
@@ -197,48 +170,30 @@ def _get_device_name(device_id):
 
 
 def _device_has_output(device_id):
-    """True, если у устройства есть каналы вывода."""
+    """True, если у устройства есть хотя бы один output-стрим.
+    Использует kAudioDevicePropertyStreams в scope Output — надёжнее,
+    чем AudioBufferList, который на macOS Tahoe читается с padding.
+    """
     address = _make_address(
-        kAudioDevicePropertyStreamConfiguration,
+        kAudioDevicePropertyStreams,
         scope=kAudioDevicePropertyScopeOutput,
         element=kAudioObjectPropertyElementMain,
     )
     size = _get_property_data_size(device_id, address)
-    if size is None or size < ctypes.sizeof(c_uint32):
+    if size is None:
         return False
-    buf = ctypes.create_string_buffer(size)
-    got = _get_property_data(device_id, address, size, buf)
-    if got is None:
+    if size < ctypes.sizeof(c_uint32):
         return False
-    try:
-        bl = ctypes.cast(buf, POINTER(AudioBufferList)).contents
-        num_buffers = bl.mNumberBuffers
-        if num_buffers == 0:
-            return False
-        # Проверяем, что хотя бы у одного буфера есть каналы
-        # mBuffers — массив переменной длины, читаем вручную
-        base = ctypes.addressof(buf) + ctypes.sizeof(c_uint32)  # после mNumberBuffers
-        buffer_size = ctypes.sizeof(AudioBuffer)
-        for i in range(num_buffers):
-            ab = AudioBuffer.from_address(base + i * buffer_size)
-            if ab.mNumberChannels > 0:
-                return True
-        return False
-    except Exception:
-        return False
+    return size // ctypes.sizeof(c_uint32) > 0
 
 
 # ---------- Публичные функции ----------
 
 def is_available():
-    """True, если CoreAudio загружен и CFString доступен."""
     return _coreaudio is not None and _HAS_CF
 
 
 def list_output_devices():
-    """Возвращает список устройств вывода:
-    [{"name": str, "id": int, "is_default": bool}, ...]
-    """
     if not is_available():
         return []
 
@@ -274,7 +229,6 @@ def list_output_devices():
 
 
 def get_default_output_id():
-    """Возвращает AudioDeviceID устройства вывода по умолчанию, либо None."""
     if not is_available():
         return None
     address = _make_address(kAudioHardwarePropertyDefaultOutputDevice)
@@ -289,7 +243,6 @@ def get_default_output_id():
 
 
 def get_default_output_name():
-    """Имя устройства вывода по умолчанию, либо None."""
     dev_id = get_default_output_id()
     if dev_id is None:
         return None
@@ -297,7 +250,6 @@ def get_default_output_name():
 
 
 def set_default_output(device_id):
-    """Переключает системный вывод на device_id. Возвращает True при успехе."""
     if not is_available():
         return False
     if not isinstance(device_id, int) or device_id <= 0:
@@ -313,7 +265,6 @@ def set_default_output(device_id):
 
 
 def set_default_output_by_name(name):
-    """Переключает системный вывод по имени устройства. Возвращает True при успехе."""
     if not name:
         return False
     for dev in list_output_devices():
@@ -323,7 +274,6 @@ def set_default_output_by_name(name):
 
 
 def get_device_id_by_name(name):
-    """Возвращает AudioDeviceID по имени, либо None."""
     if not name:
         return None
     for dev in list_output_devices():
@@ -333,9 +283,4 @@ def get_device_id_by_name(name):
 
 
 def restore_default_output():
-    """Возвращает системный вывод на устройство по умолчанию.
-    На macOS «по умолчанию» — это то, что выбрано в System Settings.
-    Мы не можем «вернуть предыдущее», поэтому просто ставим первое доступное
-    или оставляем как есть. Эта функция — no-op, оставлена для семантики.
-    """
     return True

@@ -7,7 +7,7 @@ import EventKit
 from Foundation import NSDate, NSObject, NSTimer
 from AppKit import (
     NSPanel, NSTextField, NSButton, NSColor, NSFont, NSMakeRect,
-    NSBezelStyleRounded, NSStatusWindowLevel, NSWindowStyleMaskTitled,
+    NSBezelStyleRounded, NSScreenSaverWindowLevel, NSWindowStyleMaskTitled,
     NSWindowStyleMaskClosable, NSBackingStoreBuffered,
     NSApplication, NSApplicationActivationPolicyRegular,
     NSApplicationActivationPolicyAccessory,
@@ -17,11 +17,10 @@ from AppKit import (
     NSVisualEffectBlendingModeBehindWindow, NSVisualEffectStateActive,
     NSViewWidthSizable, NSViewHeightSizable
 )
-from ui_utils import format_event_datetime
+from ui_utils import format_event_datetime, format_event_datetime_for_copy
 from config import CONFIG
 import audio_output
 
-# Глобальные хранилища — чтобы GC не собрал панели, обработчики, звук, таймеры
 _RETAINED_PANELS = {}
 _RETAINED_HANDLERS = {}
 _RETAINED_STATE = {}
@@ -29,6 +28,8 @@ _RETAINED_STATE = {}
 POST_MEETING_MINUTES = 3
 MAX_ALARM_LIFETIME_MINUTES = 30
 MIN_ALARM_LIFETIME_SECONDS = 60
+
+SNOOZE_MINUTES = 5
 
 
 class DialogHandler(NSObject):
@@ -43,10 +44,7 @@ class DialogHandler(NSObject):
         self.action()
 
 
-# ---------- Аудиовыход (обёртка над audio_output) ----------
-
 def _get_audio_outputs():
-    """Список имён устройств вывода + 'Default' в начале."""
     try:
         devices = audio_output.list_output_devices()
     except Exception as e:
@@ -56,7 +54,6 @@ def _get_audio_outputs():
 
 
 def _switch_audio_output(device_name):
-    """Переключает системный вывод на device_name. Возвращает True при успехе."""
     if not device_name or device_name == "Default":
         return False
     try:
@@ -67,7 +64,6 @@ def _switch_audio_output(device_name):
 
 
 def _restore_audio_output(device_id):
-    """Восстанавливает системный вывод по AudioDeviceID."""
     if device_id is None:
         return
     try:
@@ -75,8 +71,6 @@ def _restore_audio_output(device_id):
     except Exception as e:
         print(f"[DEBUG] audio_output.set_default_output failed: {e}", flush=True)
 
-
-# ---------- Управление окнами будильника ----------
 
 def _close_alarm(panel_id):
     state = _RETAINED_STATE.pop(panel_id, None)
@@ -159,9 +153,6 @@ def _open_url(url):
 
 
 def _compute_alarm_lifetime(events_data, now):
-    """Живёт до max(start + POST_MEETING, end), но не дольше MAX_ALARM_LIFETIME_MINUTES.
-    Если всё в прошлом — MIN_ALARM_LIFETIME_SECONDS.
-    """
     post = timedelta(minutes=POST_MEETING_MINUTES)
     latest = None
     for ev in events_data:
@@ -204,7 +195,7 @@ def show_alarm(events_data):
         False
     )
     panel.setTitle_("")
-    panel.setLevel_(NSStatusWindowLevel)
+    panel.setLevel_(NSScreenSaverWindowLevel)
     panel.center()
     panel.setReleasedWhenClosed_(False)
     panel.setHidesOnDeactivate_(False)
@@ -279,14 +270,39 @@ def show_alarm(events_data):
     handlers["close"] = h_close
     right_x -= gap
 
-    # Копировать
+    # Snooze
+    snooze_w = 140
+    right_x -= snooze_w
+    def snooze_action():
+        _close_alarm(panel_id)
+        _restore_accessory(NSApplication.sharedApplication())
+        snooze_secs = SNOOZE_MINUTES * 60
+        def re_alarm():
+            try:
+                show_alarm(events_data)
+            except Exception as e:
+                print(f"[DEBUG] snooze show_alarm failed: {e}", flush=True)
+        h_re = DialogHandler.alloc().initWithAction_(re_alarm)
+        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            snooze_secs, h_re, "performAction:", None, False
+        )
+        _RETAINED_HANDLERS.setdefault("snooze_timers", []).append(h_re)
+        print(f"[DEBUG] Snooze: next alarm in {SNOOZE_MINUTES} min", flush=True)
+
+    h_snooze = DialogHandler.alloc().initWithAction_(snooze_action)
+    btn_snooze = _make_button(f"Отложить {SNOOZE_MINUTES} мин", NSMakeRect(right_x, btn_y, snooze_w, btn_h), h_snooze)
+    content.addSubview_(btn_snooze)
+    handlers["snooze"] = h_snooze
+    right_x -= gap
+
+    # Копировать — COPY timezone
     right_x -= btn_w
     def copy_action():
         parts = []
         for ev in events_data:
             title = (ev.get('title') or 'Untitled').strip()
             parts.append(f"📅 Event: {title}")
-            parts.append(format_event_datetime(ev['start'], now))
+            parts.append(format_event_datetime_for_copy(ev['start'], now))
             if ev.get('url'):
                 parts.append(f"🔗 {ev['url']}")
             if ev.get('location'):
@@ -304,7 +320,7 @@ def show_alarm(events_data):
     handlers["copy"] = h_copy
     right_x -= gap
 
-    # Открыть встречу (Location)
+    # Открыть встречу
     if first_location:
         right_x -= btn_w
         if right_x < padding:
@@ -317,7 +333,7 @@ def show_alarm(events_data):
         content.addSubview_(btn)
         handlers["open_location"] = h_loc
 
-    # --- Звук с запоминанием и переключением аудиовыхода ---
+    # Звук
     original_output_id = None
     try:
         original_output_id = audio_output.get_default_output_id()

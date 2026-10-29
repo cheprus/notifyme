@@ -11,22 +11,18 @@ DEFAULT_CONFIG = {
     "auto_close_minutes": 15,
     "sound_file": "/System/Library/Sounds/Hero.aiff",
     "sound_output_device": "Default",
-
-    # Таймзона для отображения (меню, будильник, карточка).
-    # "Local" → зона ОС.
     "display_timezone": "Local",
-
-    # Таймзона только для копирования в буфер обмена.
     "copy_timezone": "Europe/Moscow",
-
     "target_calendar_name": "",
-    "work_calendar_hints": ["work", "event", "job"],
+    "work_calendar_hints": [
+        "work", "event", "job",
+        "рабо", "встреч", "mts", "corp", "office",
+    ],
     "custom_tracker_domains": [],
     "custom_meeting_domains": [],
     "tracker_base_url": "",
 }
 
-# Пресеты для меню "Notify Before" (в минутах)
 NOTIFY_BEFORE_PRESETS = [0, 1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 120, 180]
 
 

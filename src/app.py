@@ -4,9 +4,7 @@ import os
 import fcntl
 import objc
 
-# Явный импорт — чтобы PyInstaller включил модуль в бандл,
-# даже если он используется только внутри dialogs.py.
-import audio_output  # noqa: F401
+import audio_output  # noqa: F401 — включить в бандл
 
 from AppKit import NSApplication
 from Foundation import NSTimer
@@ -17,7 +15,6 @@ class AppDelegate(objc.lookUpClass('NSObject')):
     def applicationDidFinishLaunching_(self, notification):
         app = NSApplication.sharedApplication()
 
-        # Стартуем как Regular, чтобы дать системе понять, что мы "настоящее" приложение
         app.setActivationPolicy_(0)  # Regular
         try:
             app.activateIgnoringOtherApps_(True)
@@ -32,22 +29,18 @@ class AppDelegate(objc.lookUpClass('NSObject')):
         self.ui_timer = None
         self.notify_timer = None
 
-        # Статус-бар создаём ПОСЛЕ переключения в Accessory —
-        # на macOS 14+ (Tahoe) иконка теряется, если NSStatusItem создан до этого.
         NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             0.5, self, "switchToAccessory:", None, False
         )
 
     def switchToAccessory_(self, timer):
         print("[DEBUG] Switching to Accessory policy", flush=True)
-        NSApplication.sharedApplication().setActivationPolicy_(1)  # Accessory
+        NSApplication.sharedApplication().setActivationPolicy_(1)
 
-        # Создаём статус-бар уже в Accessory-режиме
         from status_bar import StatusBarController
         self.status_bar = StatusBarController.alloc().initWithApp_(self)
         self.status_bar.update()
 
-        # Таймеры
         self.ui_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             5.0, self, "tickUI:", None, True
         )
@@ -73,7 +66,7 @@ def main():
     if "--add-event" in sys.argv:
         print("[DEBUG] --add-event mode detected", flush=True)
         from add_event_window import main as show_form
-        show_form()
+        show_form()   # as_child=False
         sys.exit(0)
 
     lock_file_path = "/tmp/notifyme.lock"

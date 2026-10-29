@@ -8,6 +8,7 @@ BUILD_START=$(date +%s)
 BUILD_START_HUMAN=$(date "+%Y-%m-%d %H:%M:%S")
 echo "=== Build started at: $BUILD_START_HUMAN ==="
 
+# --- Переменные ---
 APP_NAME="NotifyMe"
 APP_BUNDLE="dist/${APP_NAME}.app"
 INSTALL_PATH="/Applications/${APP_NAME}.app"
@@ -89,7 +90,10 @@ fi
 
 STEP_START=$(date +%s)
 echo "=== 1. Building application (pyinstaller) ==="
-rm -rf build dist
+rm -rf build dist src/__pycache__
+find src -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find src -name "*.pyc" -delete 2>/dev/null || true
+
 "$PYINSTALLER" \
   --noconfirm \
   --windowed \
@@ -186,8 +190,8 @@ BUILD_SEC=$((BUILD_TOTAL % 60))
 echo ""
 echo "============================================================"
 echo "  BUILD COMPLETE"
-echo "  Started: $BUILD_START_HUMAN"
-echo "  Ended:   $BUILD_END_HUMAN"
+echo "  Started:  $BUILD_START_HUMAN"
+echo "  Ended:    $BUILD_END_HUMAN"
 echo "  Duration: ${BUILD_MIN}m ${BUILD_SEC}s (total ${BUILD_TOTAL}s)"
 echo "============================================================"
 echo "Log: $LOG_FILE"

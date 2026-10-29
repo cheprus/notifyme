@@ -48,19 +48,6 @@ class StatusBarController(NSObject):
             print(f"[DEBUG] show_event_card failed: {e}", flush=True)
             traceback.print_exc()
 
-    def handleEventClick_(self, sender):
-        """Клик по пункту меню события → открыть карточку."""
-        try:
-            event = sender.representedObject()
-            if event is None:
-                print("[DEBUG] handleEventClick_: no event in representedObject", flush=True)
-                return
-            self.showEventCard_(event)
-        except Exception as e:
-            import traceback
-            print(f"[DEBUG] handleEventClick_ failed: {e}", flush=True)
-            traceback.print_exc()
-
     def copy_selected_to_clipboard(self):
         now = datetime.now()
         events = get_upcoming_events(self.app.store)
@@ -166,11 +153,12 @@ class StatusBarController(NSObject):
 
     def addToCalendar_(self, sender):
         try:
-            app_path = "/Applications/NotifyMe.app/Contents/MacOS/NotifyMe"
-            subprocess.Popen([app_path, "--add-event"])
-            print("[DEBUG] Launched add-event directly", flush=True)
+            from add_event_window import main as show_form
+            show_form(as_child=True)
         except Exception as e:
-            print(f"[DEBUG] Failed to launch: {e}", flush=True)
+            import traceback
+            print(f"[DEBUG] addToCalendar_ failed: {e}", flush=True)
+            traceback.print_exc()
 
     def openCalendar_(self, sender):
         subprocess.Popen(["open", "-a", "Calendar"])
@@ -378,16 +366,12 @@ class StatusBarController(NSObject):
             item.setEnabled_(False)
             self.menu.addItem_(item)
 
-        def add_event_item(ev):
+        def add_event_item(ev, show_date=False):
             item = NSMenuItem.alloc().init()
-            view = MenuItemView.alloc().initWithFrame_event_controller_(
-                NSMakeRect(0, 0, 420, 24), ev, self
+            view = MenuItemView.alloc().initWithFrame_event_controller_showDate_(
+                NSMakeRect(0, 0, 460, 24), ev, self, show_date
             )
             item.setView_(view)
-            # Клик по пункту → handleEventClick_ → showEventCard_
-            item.setTarget_(self)
-            item.setAction_("handleEventClick:")
-            item.setRepresentedObject_(ev)
             self.menu.addItem_(item)
 
         add_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("➕ New event", "addToCalendar:", "")
@@ -442,14 +426,14 @@ class StatusBarController(NSObject):
             self.menu.addItem_(NSMenuItem.separatorItem())
             add_section("— Tomorrow —")
             for ev in tomorrow_events:
-                add_event_item(ev)
+                add_event_item(ev, show_date=True)
 
         next_week_events = [ev for ev in week_events if ev["start"] >= day_after_tomorrow]
         if next_week_events:
             self.menu.addItem_(NSMenuItem.separatorItem())
             add_section("— Next 7 Days —")
             for ev in next_week_events[:30]:
-                add_event_item(ev)
+                add_event_item(ev, show_date=True)
             if len(next_week_events) > 30:
                 item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"... and {len(next_week_events) - 30} more", None, "")
                 item.setEnabled_(False)
