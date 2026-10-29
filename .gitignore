@@ -24,3 +24,5 @@ icon.iconset/
 # Состояние приложения
 .notifyme_state.json
 /.idea/
+.idea/
+/src-old/

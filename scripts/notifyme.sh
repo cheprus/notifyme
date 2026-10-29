@@ -14,8 +14,9 @@ start_app() {
         echo "Error: Application not found in /Applications"
         return 1
     fi
-    nohup "$APP_PATH" > /tmp/notifyme.log 2>&1 &
-    echo "NotifyMe started (PID: $!)"
+    # Запускаем через LaunchServices (как двойной клик), чтобы TCC работал корректно
+    open -a /Applications/NotifyMe.app
+    echo "NotifyMe started via LaunchServices."
 }
 
 stop_app() {

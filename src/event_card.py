@@ -1,0 +1,293 @@
+# src/event_card.py
+import objc
+import subprocess
+from datetime import datetime
+from Foundation import NSObject, NSApplication, NSNotificationCenter, NSTimer
+from AppKit import (
+    NSPanel, NSTextField, NSButton, NSColor, NSFont, NSMakeRect,
+    NSBezelStyleRounded, NSScreenSaverWindowLevel, NSWindowStyleMaskTitled,
+    NSWindowStyleMaskClosable, NSBackingStoreBuffered,
+    NSPasteboard, NSVisualEffectView, NSVisualEffectMaterialHUDWindow,
+    NSVisualEffectBlendingModeBehindWindow, NSVisualEffectStateActive,
+    NSViewWidthSizable, NSViewHeightSizable,
+    NSLineBreakByTruncatingTail,
+    NSWindowDidResignKeyNotification,
+    NSApplicationDidResignActiveNotification,
+    NSApplicationActivationPolicyRegular,
+    NSApplicationActivationPolicyAccessory,
+)
+from ui_utils import format_event_datetime, to_display_tz
+
+_RETAINED_PANELS = {}
+_RETAINED_HANDLERS = {}
+
+_GRACE_SECONDS = 0.5
+
+
+class CardHandler(NSObject):
+    def initWithAction_(self, action):
+        self = objc.super(CardHandler, self).init()
+        if self is None:
+            return None
+        self.action = action
+        return self
+
+    def performAction_(self, sender):
+        self.action()
+
+
+def _close_card(panel_id):
+    state = _RETAINED_HANDLERS.pop(panel_id, None)
+    if state:
+        cleanup = state.get("cleanup_observers")
+        if cleanup:
+            try:
+                cleanup()
+            except Exception:
+                pass
+    panel = _RETAINED_PANELS.pop(panel_id, None)
+    if panel:
+        try:
+            panel.orderOut_(None)
+            panel.close()
+        except Exception:
+            pass
+
+
+def close_all_cards():
+    for pid in list(_RETAINED_PANELS.keys()):
+        _close_card(pid)
+
+
+def _make_button(title, frame, handler, bold=False):
+    btn = NSButton.alloc().initWithFrame_(frame)
+    btn.setTitle_(title)
+    btn.setBezelStyle_(NSBezelStyleRounded)
+    btn.setFont_(NSFont.systemFontOfSize_(13) if not bold else NSFont.boldSystemFontOfSize_(13))
+    btn.setTarget_(handler)
+    btn.setAction_("performAction:")
+    return btn
+
+
+def _label(text, frame, bold=False, secondary=False, size=13):
+    f = NSTextField.alloc().initWithFrame_(frame)
+    f.setStringValue_(text)
+    f.setBezeled_(False)
+    f.setDrawsBackground_(False)
+    f.setEditable_(False)
+    f.setSelectable_(not secondary)
+    if bold:
+        f.setFont_(NSFont.boldSystemFontOfSize_(size))
+    else:
+        f.setFont_(NSFont.systemFontOfSize_(size))
+    if secondary:
+        f.setTextColor_(NSColor.secondaryLabelColor())
+    else:
+        f.setTextColor_(NSColor.labelColor())
+    f.setLineBreakMode_(NSLineBreakByTruncatingTail)
+    return f
+
+
+def _open_url(url):
+    try:
+        subprocess.Popen(["open", url])
+    except Exception as e:
+        print(f"[DEBUG] open failed: {e}", flush=True)
+
+
+def show_event_card(event):
+    print(f"[DEBUG] show_event_card: {event.get('title')!r}", flush=True)
+    close_all_cards()
+
+    app = NSApplication.sharedApplication()
+    original_policy = app.activationPolicy()
+    print(f"[DEBUG] app={app}, policy={original_policy}", flush=True)
+
+    # Временно Regular — иначе accessory-приложение не активируется
+    try:
+        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    except Exception as e:
+        print(f"[DEBUG] setActivationPolicy(Regular) failed: {e}", flush=True)
+
+    try:
+        app.activateIgnoringOtherApps_(True)
+    except Exception:
+        try:
+            app.activate()
+        except Exception as e:
+            print(f"[DEBUG] activate failed: {e}", flush=True)
+
+    padding = 20
+    width = 520
+    row_h = 24
+    rows = 6
+    height = padding * 2 + rows * row_h + 16 + 44
+
+    panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(0, 0, width, height),
+        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
+        NSBackingStoreBuffered,
+        False
+    )
+    panel.setTitle_("")
+    panel.setLevel_(NSScreenSaverWindowLevel)
+    panel.center()
+    panel.setReleasedWhenClosed_(False)
+    panel.setHidesOnDeactivate_(True)
+    panel.setFloatingPanel_(True)
+    panel.setTitleVisibility_(1)
+    panel.setTitlebarAppearsTransparent_(True)
+    panel.setAlphaValue_(1.0)
+
+    effect = NSVisualEffectView.alloc().initWithFrame_(NSMakeRect(0, 0, width, height))
+    effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
+    effect.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
+    effect.setState_(NSVisualEffectStateActive)
+    effect.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+    panel.setContentView_(effect)
+    content = effect
+
+    y = height - padding
+    label_w = 90
+    field_x = padding + label_w + 10
+    field_w = width - field_x - padding
+
+    def add_row(label_text, value_text, secondary=False):
+        nonlocal y
+        lbl = _label(label_text, NSMakeRect(padding, y - 18, label_w, 18), secondary=True, size=12)
+        content.addSubview_(lbl)
+        val = _label(value_text, NSMakeRect(field_x, y - 18, field_w, 18), secondary=secondary)
+        content.addSubview_(val)
+        y -= row_h
+
+    now = datetime.now()
+    title = (event.get("title") or "Untitled").strip()
+    start = event.get("start")
+    end = event.get("end")
+    location = event.get("location") or ""
+    url = event.get("url") or ""
+    calendar = event.get("calendar_title") or ""
+
+    add_row("Title", title, secondary=False)
+    if start:
+        add_row("Start", format_event_datetime(start, now), secondary=False)
+    if end:
+        add_row("End", to_display_tz(end).strftime("%H:%M"), secondary=False)
+    if location:
+        add_row("Location", location, secondary=True)
+    if url:
+        add_row("URL", url, secondary=True)
+    if calendar:
+        add_row("Calendar", calendar, secondary=True)
+
+    btn_y = padding
+    btn_h = 32
+    gap = 10
+    right_x = width - padding
+
+    panel_id = id(panel)
+    shown_at = {"t": datetime.now()}
+    observers_holder = {"items": []}
+    close_guard = {"closed": False}
+
+    def cleanup_observers():
+        nc = NSNotificationCenter.defaultCenter()
+        for obs in observers_holder["items"]:
+            try:
+                nc.removeObserver_(obs)
+            except Exception:
+                pass
+        observers_holder["items"] = []
+
+    def restore_policy():
+        try:
+            app.setActivationPolicy_(original_policy)
+        except Exception:
+            pass
+
+    def close_action():
+        if close_guard["closed"]:
+            return
+        close_guard["closed"] = True
+        cleanup_observers()
+        _close_card(panel_id)
+        restore_policy()
+
+    handlers = {"cleanup_observers": cleanup_observers}
+
+    close_w = 100
+    right_x -= close_w
+    h_close = CardHandler.alloc().initWithAction_(close_action)
+    btn_close = _make_button("Закрыть", NSMakeRect(right_x, btn_y, close_w, btn_h), h_close, bold=True)
+    content.addSubview_(btn_close)
+    handlers["close"] = h_close
+    right_x -= gap
+
+    copy_w = 130
+    right_x -= copy_w
+    def copy_action():
+        pb = NSPasteboard.generalPasteboard()
+        pb.clearContents()
+        text = f"📅 Event: {title}\n"
+        if start:
+            text += f"{format_event_datetime(start, now)}\n"
+        if url:
+            text += f"🔗 {url}\n"
+        if location:
+            text += f"📍 {location}\n"
+        pb.setString_forType_(text, "public.utf8-plain-text")
+        close_action()
+    h_copy = CardHandler.alloc().initWithAction_(copy_action)
+    btn_copy = _make_button("Копировать", NSMakeRect(right_x, btn_y, copy_w, btn_h), h_copy)
+    content.addSubview_(btn_copy)
+    handlers["copy"] = h_copy
+    right_x -= gap
+
+    if location:
+        open_w = 150
+        right_x -= open_w
+        def open_location_action(loc=location):
+            _open_url(loc)
+            close_action()
+        h_loc = CardHandler.alloc().initWithAction_(open_location_action)
+        btn_loc = _make_button("Открыть встречу", NSMakeRect(right_x, btn_y, open_w, btn_h), h_loc, bold=True)
+        content.addSubview_(btn_loc)
+        handlers["open_location"] = h_loc
+    elif url:
+        open_w = 150
+        right_x -= open_w
+        def open_url_action(u=url):
+            _open_url(u)
+            close_action()
+        h_url = CardHandler.alloc().initWithAction_(open_url_action)
+        btn_url = _make_button("Открыть трекер", NSMakeRect(right_x, btn_y, open_w, btn_h), h_url, bold=True)
+        content.addSubview_(btn_url)
+        handlers["open_url"] = h_url
+
+    def on_app_resign(note):
+        elapsed = (datetime.now() - shown_at["t"]).total_seconds()
+        if elapsed >= _GRACE_SECONDS:
+            close_action()
+
+    obs_app = NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
+        NSApplicationDidResignActiveNotification, None, None, on_app_resign
+    )
+    observers_holder["items"].append(obs_app)
+
+    def on_resign_key(note):
+        elapsed = (datetime.now() - shown_at["t"]).total_seconds()
+        if elapsed < _GRACE_SECONDS:
+            return
+        close_action()
+
+    obs_key = NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
+        NSWindowDidResignKeyNotification, panel, None, on_resign_key
+    )
+    observers_holder["items"].append(obs_key)
+
+    panel.makeKeyAndOrderFront_(None)
+    panel.orderFrontRegardless()
+    print(f"[DEBUG] panel shown: isVisible={panel.isVisible()}, isKey={panel.isKeyWindow()}", flush=True)
+
+    _RETAINED_PANELS[panel_id] = panel
+    _RETAINED_HANDLERS[panel_id] = handlers

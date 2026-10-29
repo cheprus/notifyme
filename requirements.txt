@@ -3,4 +3,4 @@ rumps
 pyobjc-framework-Cocoa
 pyobjc-framework-EventKit
 pyinstaller
-create-dmg
+dateparser
