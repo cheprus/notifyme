@@ -20,6 +20,7 @@ NotifyMe.dmg
 *.log
 icon.iconset/
 *.icns
+!assets/myicon.icns
 
 # Состояние приложения
 .notifyme_state.json
