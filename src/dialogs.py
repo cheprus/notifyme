@@ -17,7 +17,10 @@ from AppKit import (
     NSVisualEffectBlendingModeBehindWindow, NSVisualEffectStateActive,
     NSViewWidthSizable, NSViewHeightSizable
 )
-from ui_utils import format_event_datetime, format_event_datetime_for_copy
+from ui_utils import (
+    format_event_datetime,
+    format_event_datetime_for_copy,
+)
 from config import CONFIG
 import audio_output
 
@@ -26,10 +29,23 @@ _RETAINED_HANDLERS = {}
 _RETAINED_STATE = {}
 
 POST_MEETING_MINUTES = 3
-MAX_ALARM_LIFETIME_MINUTES = 30
 MIN_ALARM_LIFETIME_SECONDS = 60
 
 SNOOZE_MINUTES = 5
+
+
+def _sound_on_seconds():
+    try:
+        return max(1, int(CONFIG.get("alarm_sound_on_seconds", 10)))
+    except Exception:
+        return 10
+
+
+def _sound_off_seconds():
+    try:
+        return max(1, int(CONFIG.get("alarm_sound_off_seconds", 60)))
+    except Exception:
+        return 60
 
 
 class DialogHandler(NSObject):
@@ -42,6 +58,48 @@ class DialogHandler(NSObject):
 
     def performAction_(self, sender):
         self.action()
+
+
+class PulseController(NSObject):
+    """Пульс звука: N сек вкл, M сек выкл, до закрытия."""
+    def initWithSound_state_(self, sound, state):
+        self = objc.super(PulseController, self).init()
+        if self is None:
+            return None
+        self._sound = sound
+        self._state = state
+        self._stopped = False
+        return self
+
+    def start_(self, timer=None):
+        if self._stopped or self._sound is None:
+            return
+        try:
+            self._sound.play()
+        except Exception as e:
+            print(f"[DEBUG] pulse play failed: {e}", flush=True)
+        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            _sound_on_seconds(), self, "offPulse:", None, False
+        )
+
+    def offPulse_(self, timer):
+        if self._stopped or self._sound is None:
+            return
+        try:
+            self._sound.stop()
+        except Exception:
+            pass
+        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            _sound_off_seconds(), self, "start:", None, False
+        )
+
+    def stop_(self, timer=None):
+        self._stopped = True
+        if self._sound is not None:
+            try:
+                self._sound.stop()
+            except Exception:
+                pass
 
 
 def _get_audio_outputs():
@@ -72,24 +130,42 @@ def _restore_audio_output(device_id):
         print(f"[DEBUG] audio_output.set_default_output failed: {e}", flush=True)
 
 
+def _stop_sound(state):
+    snd = state.get("sound")
+    if snd:
+        try:
+            snd.stop()
+        except Exception:
+            pass
+    tmr = state.get("pulse_timer")
+    if tmr:
+        try:
+            tmr.invalidate()
+        except Exception:
+            pass
+        state["pulse_timer"] = None
+    pc = state.get("pulse_controller")
+    if pc is not None:
+        try:
+            pc.stop_(None)
+        except Exception:
+            pass
+        state["pulse_controller"] = None
+
+
 def _close_alarm(panel_id):
     state = _RETAINED_STATE.pop(panel_id, None)
     if state:
-        snd = state.get("sound")
-        if snd:
-            try:
-                snd.stop()
-            except Exception:
-                pass
-        tmr = state.get("timer")
-        if tmr:
-            try:
-                tmr.invalidate()
-            except Exception:
-                pass
+        _stop_sound(state)
         orig = state.get("original_output_id")
         if orig is not None:
             _restore_audio_output(orig)
+        life = state.get("life_timer")
+        if life:
+            try:
+                life.invalidate()
+            except Exception:
+                pass
 
     panel = _RETAINED_PANELS.pop(panel_id, None)
     if panel:
@@ -170,8 +246,10 @@ def _compute_alarm_lifetime(events_data, now):
     seconds = (latest - now).total_seconds()
     if seconds < MIN_ALARM_LIFETIME_SECONDS:
         seconds = MIN_ALARM_LIFETIME_SECONDS
-    if seconds > MAX_ALARM_LIFETIME_MINUTES * 60:
-        seconds = MAX_ALARM_LIFETIME_MINUTES * 60
+    max_minutes = CONFIG.get("auto_close_minutes", 15)
+    max_seconds = max_minutes * 60
+    if seconds > max_seconds:
+        seconds = max_seconds
     return int(seconds)
 
 
@@ -256,23 +334,28 @@ def show_alarm(events_data):
     handlers = {}
     panel_id = id(panel)
 
+    state = {
+        "sound": None,
+        "pulse_timer": None,
+        "life_timer": None,
+        "original_output_id": None,
+        "pulse_controller": None,
+    }
+
     def close_action():
         _close_alarm(panel_id)
         _restore_accessory(NSApplication.sharedApplication())
 
-    right_x = width - padding
+    def mute_action():
+        """Заглушить звук, окно оставить."""
+        _stop_sound(state)
+        try:
+            btn_mute.setTitle_("🔇 Заглушено")
+            btn_mute.setEnabled_(False)
+        except Exception:
+            pass
+        print("[DEBUG] Alarm muted (window stays)", flush=True)
 
-    # Закрыть
-    right_x -= close_w
-    h_close = DialogHandler.alloc().initWithAction_(close_action)
-    btn_close = _make_button("Закрыть", NSMakeRect(right_x, btn_y, close_w, btn_h), h_close, bold=True)
-    content.addSubview_(btn_close)
-    handlers["close"] = h_close
-    right_x -= gap
-
-    # Snooze
-    snooze_w = 140
-    right_x -= snooze_w
     def snooze_action():
         _close_alarm(panel_id)
         _restore_accessory(NSApplication.sharedApplication())
@@ -289,13 +372,35 @@ def show_alarm(events_data):
         _RETAINED_HANDLERS.setdefault("snooze_timers", []).append(h_re)
         print(f"[DEBUG] Snooze: next alarm in {SNOOZE_MINUTES} min", flush=True)
 
+    right_x = width - padding
+
+    # Закрыть
+    right_x -= close_w
+    h_close = DialogHandler.alloc().initWithAction_(close_action)
+    btn_close = _make_button("Закрыть", NSMakeRect(right_x, btn_y, close_w, btn_h), h_close, bold=True)
+    content.addSubview_(btn_close)
+    handlers["close"] = h_close
+    right_x -= gap
+
+    # Отложить
+    snooze_w = 140
+    right_x -= snooze_w
     h_snooze = DialogHandler.alloc().initWithAction_(snooze_action)
     btn_snooze = _make_button(f"Отложить {SNOOZE_MINUTES} мин", NSMakeRect(right_x, btn_y, snooze_w, btn_h), h_snooze)
     content.addSubview_(btn_snooze)
     handlers["snooze"] = h_snooze
     right_x -= gap
 
-    # Копировать — COPY timezone
+    # Заглушить
+    mute_w = 130
+    right_x -= mute_w
+    h_mute = DialogHandler.alloc().initWithAction_(mute_action)
+    btn_mute = _make_button("🔇 Заглушить", NSMakeRect(right_x, btn_y, mute_w, btn_h), h_mute)
+    content.addSubview_(btn_mute)
+    handlers["mute"] = h_mute
+    right_x -= gap
+
+    # Копировать (COPY timezone)
     right_x -= btn_w
     def copy_action():
         parts = []
@@ -333,7 +438,7 @@ def show_alarm(events_data):
         content.addSubview_(btn)
         handlers["open_location"] = h_loc
 
-    # Звук
+    # Звук + пульс
     original_output_id = None
     try:
         original_output_id = audio_output.get_default_output_id()
@@ -350,11 +455,18 @@ def show_alarm(events_data):
         sound = NSSound.alloc().initWithContentsOfFile_byReference_(sound_path, True)
         if sound:
             try:
-                sound.setLoops_(-1)
+                sound.setLoops_(0)
                 sound.setVolume_(0.9)
-                sound.play()
             except Exception as e:
-                print(f"[DEBUG] sound play failed: {e}", flush=True)
+                print(f"[DEBUG] sound setup failed: {e}", flush=True)
+
+    state["sound"] = sound
+    state["original_output_id"] = original_output_id
+
+    if sound:
+        pulse = PulseController.alloc().initWithSound_state_(sound, state)
+        state["pulse_controller"] = pulse
+        pulse.start_(None)
 
     lifetime = _compute_alarm_lifetime(events_data, now)
     print(f"[DEBUG] Alarm lifetime: {lifetime} sec ({lifetime/60:.1f} min)", flush=True)
@@ -365,17 +477,14 @@ def show_alarm(events_data):
 
     h_auto = DialogHandler.alloc().initWithAction_(auto_close)
     handlers["auto"] = h_auto
-    timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+    life_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
         lifetime, h_auto, "performAction:", None, False
     )
+    state["life_timer"] = life_timer
 
     _RETAINED_PANELS[panel_id] = panel
     _RETAINED_HANDLERS[panel_id] = handlers
-    _RETAINED_STATE[panel_id] = {
-        "sound": sound,
-        "timer": timer,
-        "original_output_id": original_output_id,
-    }
+    _RETAINED_STATE[panel_id] = state
 
     _bring_to_front(panel)
     return True

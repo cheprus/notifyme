@@ -27,3 +27,6 @@ icon.iconset/
 /.idea/
 .idea/
 /src-old/
+
+# pip install -e .
+*.egg-info/

@@ -2,5 +2,7 @@
 rumps
 pyobjc-framework-Cocoa
 pyobjc-framework-EventKit
+pyobjc-framework-ApplicationServices
+pyobjc-framework-Quartz
 pyinstaller
 dateparser

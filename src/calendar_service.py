@@ -33,6 +33,8 @@ def _log(msg):
         pass
 
 
+# ---------- Нормализация и восстановление ссылок ----------
+
 _ANY_ISSUE_URL_RE = re.compile(
     r'https?://[^\s]*?/issues/(\d+)',
     re.IGNORECASE
@@ -51,11 +53,6 @@ def _normalize_title(title):
 
 
 def _recover_tracker_url(title, notes):
-    """Ищет ссылку на тикет:
-    1) tracker-домены из custom_tracker_domains → как есть
-    2) любая https://.../issues/NNN → как есть
-    3) голый #NNNNN → собирается только если в конфиге задан tracker_base_url
-    """
     haystack = " ".join(filter(None, [title or "", notes or ""]))
 
     for domain in CONFIG.get("custom_tracker_domains", []) or []:
@@ -149,23 +146,6 @@ def _calendar_exists(store, name):
     return False
 
 
-def _resolve_target_calendar(store):
-    """Возвращает (name, source):
-    - name из конфига, если такой календарь реально существует
-    - иначе defaultCalendarForNewEvents
-    - иначе '' (AppleScript возьмёт первый writable)
-    """
-    configured = _target_calendar_name()
-    if configured:
-        if _calendar_exists(store, configured):
-            return configured, "config"
-        _log(f"Configured calendar {configured!r} not found — falling back to default")
-    default_name = get_default_calendar_name(store)
-    if default_name:
-        return default_name, "default"
-    return "", "apple"
-
-
 def _fetch_events(store, start_dt, end_dt):
     def to_nsdate(dt):
         return NSDate.dateWithTimeIntervalSince1970_(dt.timestamp())
@@ -210,6 +190,7 @@ def _fetch_events(store, start_dt, end_dt):
                 "end": end,
                 "url": url_str,
                 "location": location,
+                "notes": notes,
                 "id": unique_id,
                 "calendar_title": cal_title,
             })
@@ -254,7 +235,10 @@ def get_dialog_message(start_dt, now):
         return f"Event started {minutes_ago} minutes ago"
 
 
+# ---------- Классификация ссылок ----------
+
 _TRACKER_PATTERNS = [
+    r'support\.igtel\.ru',
     r'jira',
     r'confluence',
     r'atlassian\.net',
@@ -275,12 +259,14 @@ _TRACKER_PATTERNS = [
 ]
 
 _MEETING_PATTERNS = [
-    r'(?:^|\.)zoom\.us',
-    r'(?:^|\.)meet\.google\.com',
-    r'(?:^|\.)teams\.microsoft\.com',
-    r'(?:^|\.)webex\.com',
-    r'(?:^|\.)whereby\.com',
-    r'(?:^|\.)jitsi',
+    r'\bmts-link\.ru',
+    r'\bzoom\.us',
+    r'\bmeet\.google\.com',
+    r'\bteams\.microsoft\.com',
+    r'\bwebex\.com',
+    r'\bwhereby\.com',
+    r'\bjitsi',
+    r'\bmeet\.jivo\.ru',
     r'/j/\d+',
     r'/session/\d+',
     r'/meet/',
@@ -352,6 +338,8 @@ def split_links(tracker_url, meeting_url, notes):
     return url_field, location_field
 
 
+# ---------- AppleScript helpers ----------
+
 def _escape_applescript(s):
     return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
 
@@ -374,7 +362,6 @@ def _run_osascript(script, timeout=10):
 
 
 def _try_create_event(title, start_dt, end_dt, notes, tracker_url, meeting_url, target_name, store):
-    """Одна попытка создания в конкретном календаре. Возвращает (ok, error)."""
     sy, sm, sd = start_dt.year, start_dt.month, start_dt.day
     sh, smin = start_dt.hour, start_dt.minute
     ey, em, ed = end_dt.year, end_dt.month, end_dt.day

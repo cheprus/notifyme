@@ -4,7 +4,7 @@ import os
 import fcntl
 import objc
 
-import audio_output  # noqa: F401 — включить в бандл
+import audio_output  # noqa: F401
 
 from AppKit import NSApplication
 from Foundation import NSTimer
@@ -35,18 +35,30 @@ class AppDelegate(objc.lookUpClass('NSObject')):
 
     def switchToAccessory_(self, timer):
         print("[DEBUG] Switching to Accessory policy", flush=True)
-        NSApplication.sharedApplication().setActivationPolicy_(1)
+        try:
+            NSApplication.sharedApplication().setActivationPolicy_(1)
+            print("[DEBUG] policy set", flush=True)
 
-        from status_bar import StatusBarController
-        self.status_bar = StatusBarController.alloc().initWithApp_(self)
-        self.status_bar.update()
+            from status_bar import StatusBarController
+            print("[DEBUG] status_bar imported", flush=True)
 
-        self.ui_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            5.0, self, "tickUI:", None, True
-        )
-        self.notify_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            5.0, self.status_bar, "checkNotifications:", None, True
-        )
+            self.status_bar = StatusBarController.alloc().initWithApp_(self)
+            print(f"[DEBUG] status_bar created: {self.status_bar}", flush=True)
+
+            self.status_bar.update()
+            print("[DEBUG] update done", flush=True)
+
+            self.ui_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                5.0, self, "tickUI:", None, True
+            )
+            self.notify_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                5.0, self.status_bar, "checkNotifications:", None, True
+            )
+            print("[DEBUG] timers set", flush=True)
+        except Exception as e:
+            import traceback
+            print(f"[DEBUG] switchToAccessory_ FAILED: {e}", flush=True)
+            traceback.print_exc()
 
     def tickUI_(self, timer):
         if self.status_bar is not None:
@@ -66,7 +78,7 @@ def main():
     if "--add-event" in sys.argv:
         print("[DEBUG] --add-event mode detected", flush=True)
         from add_event_window import main as show_form
-        show_form()   # as_child=False
+        show_form()
         sys.exit(0)
 
     lock_file_path = "/tmp/notifyme.lock"

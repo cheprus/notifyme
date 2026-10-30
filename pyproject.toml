@@ -1,5 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "NotifyMe"
 version = "1.0.0"
-description = "A macOS menu bar application which tracks upcoming calendar events and sends reminders."
+description = "macOS menu bar app for upcoming calendar events with reminders"
+readme = "README.md"
 requires-python = ">=3.13"
+license = {text = "MIT"}
+authors = [{name = "Alexey Chepurnykh"}]
+dependencies = [
+    "rumps",
+    "pyobjc-framework-Cocoa",
+    "pyobjc-framework-EventKit",
+    "pyobjc-framework-ApplicationServices",
+    "pyobjc-framework-Quartz",
+    "dateparser",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller",
+    "pytest",
+    "ruff",
+    "mypy",
+    "create-dmg",
+]
+
+[project.scripts]
+notifyme = "app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+    "app",
+    "status_bar",
+    "menu_item_view",
+    "dialogs",
+    "event_card",
+    "add_event_window",
+    "calendar_service",
+    "calendar_icon",
+    "ui_utils",
+    "time_utils",
+    "color_utils",
+    "clipboard_utils",
+    "audio_output",
+    "hotkeys",
+    "config",
+    "state_manager",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

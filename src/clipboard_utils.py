@@ -2,6 +2,7 @@
 from AppKit import NSPasteboard
 
 from time_utils import format_event_datetime_for_copy
+from config import CONFIG
 
 
 def format_event_for_clipboard(ev, now):
@@ -13,6 +14,10 @@ def format_event_for_clipboard(ev, now):
         text += f"🔗 {ev['url']}\n"
     if ev.get("location"):
         text += f"📍 {ev['location']}\n"
+    if CONFIG.get("include_notes_in_copy", False):
+        notes = (ev.get("notes") or "").strip()
+        if notes:
+            text += f"📝 {notes}\n"
     return text
 
 

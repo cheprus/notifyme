@@ -3,18 +3,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# --- Таймер сборки ---
 BUILD_START=$(date +%s)
 BUILD_START_HUMAN=$(date "+%Y-%m-%d %H:%M:%S")
 echo "=== Build started at: $BUILD_START_HUMAN ==="
 
-# --- Переменные ---
 APP_NAME="NotifyMe"
 APP_BUNDLE="dist/${APP_NAME}.app"
 INSTALL_PATH="/Applications/${APP_NAME}.app"
 APP_BIN="${INSTALL_PATH}/Contents/MacOS/${APP_NAME}"
 LOG_FILE="/tmp/notifyme.log"
 LOCK_FILE="/tmp/notifyme.lock"
+PYTHON="/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
 PYINSTALLER="/Library/Frameworks/Python.framework/Versions/3.13/bin/pyinstaller"
 ENTITLEMENTS="assets/entitlements.plist"
 ICON="assets/myicon.icns"
@@ -74,6 +73,29 @@ if [ ! -x "$PYINSTALLER" ]; then
     exit 1
 fi
 
+if ! "$PYTHON" -c "import Quartz" 2>/dev/null; then
+    echo "ERROR: pyobjc-framework-Quartz not installed."
+    echo "Run: $PYTHON -m pip install pyobjc-framework-Quartz"
+    exit 1
+fi
+if ! "$PYTHON" -c "import objc" 2>/dev/null; then
+    echo "ERROR: pyobjc-framework-Cocoa not installed."
+    echo "Run: $PYTHON -m pip install pyobjc-framework-Cocoa"
+    exit 1
+fi
+if ! "$PYTHON" -c "import EventKit" 2>/dev/null; then
+    echo "ERROR: pyobjc-framework-EventKit not installed."
+    echo "Run: $PYTHON -m pip install pyobjc-framework-EventKit"
+    exit 1
+fi
+if ! "$PYTHON" -c "import ApplicationServices" 2>/dev/null; then
+    echo "ERROR: pyobjc-framework-ApplicationServices not installed."
+    echo "Run: $PYTHON -m pip install pyobjc-framework-ApplicationServices"
+    exit 1
+fi
+
+echo "=== Python packages OK ==="
+
 if ! security find-identity -p codesigning | grep -q "\"$CODESIGN_IDENTITY\""; then
     echo "ERROR: Code signing identity '$CODESIGN_IDENTITY' not found."
     echo "Available identities:"
@@ -111,6 +133,7 @@ find src -name "*.pyc" -delete 2>/dev/null || true
   --hidden-import add_event_window \
   --hidden-import audio_output \
   --hidden-import event_card \
+  --hidden-import hotkeys \
   --add-data "src/audio_output.py:." \
   --osx-bundle-identifier "com.chep.notifyme" \
   src/app.py

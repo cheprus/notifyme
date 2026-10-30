@@ -21,9 +21,14 @@ DEFAULT_CONFIG = {
     "custom_tracker_domains": [],
     "custom_meeting_domains": [],
     "tracker_base_url": "",
+    "dnd_until": None,
+    "alarm_sound_on_seconds": 10,
+    "alarm_sound_off_seconds": 60,
+    "include_notes_in_copy": False,
 }
 
 NOTIFY_BEFORE_PRESETS = [0, 1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 120, 180]
+AUTO_CLOSE_PRESETS = [5, 10, 15, 30]
 
 
 def get_available_timezones():
@@ -66,6 +71,14 @@ def load_config():
                 merged["target_calendar_name"] = ""
             if not isinstance(merged.get("tracker_base_url"), str):
                 merged["tracker_base_url"] = ""
+            if "dnd_until" not in merged:
+                merged["dnd_until"] = None
+            if not isinstance(merged.get("alarm_sound_on_seconds"), int):
+                merged["alarm_sound_on_seconds"] = 10
+            if not isinstance(merged.get("alarm_sound_off_seconds"), int):
+                merged["alarm_sound_off_seconds"] = 60
+            if not isinstance(merged.get("include_notes_in_copy"), bool):
+                merged["include_notes_in_copy"] = False
             return merged
         except Exception:
             pass
