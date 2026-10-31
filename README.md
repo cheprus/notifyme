@@ -13,7 +13,7 @@ macOS menu bar app for upcoming calendar events with reminders.
 - Separate timezones for display and clipboard
 - Configurable sound, audio output, target calendar
 - Notify Before: presets + `Custom…`
-- Global hotkey `Cmd+Shift+N` → New event from clipboard (requires Accessibility)
+- Global hotkey `Cmd+Ctrl+N` → New event from clipboard (requires Accessibility)
 - Do Not Disturb until the current event ends
 
 ## Install
@@ -34,32 +34,23 @@ macOS menu bar app for upcoming calendar events with reminders.
    ```bash
    xcode-select --install
    ```
-3. Install Python packages:
+3. Install dependencies:
    ```bash
-   /Library/Frameworks/Python.framework/Versions/3.13/bin/pip3 install \
-     pyinstaller \
-     pyobjc-framework-Cocoa \
-     pyobjc-framework-EventKit \
-     pyobjc-framework-ApplicationServices \
-     pyobjc-framework-Quartz \
-     dateparser
-   ```
-   Or from `requirements.txt`:
-   ```bash
-   /Library/Frameworks/Python.framework/Versions/3.13/bin/pip3 install -r requirements.txt
+   make install-dev
    ```
 4. Create a code signing certificate (see below).
-5. Build:
+5. Build, sign and install:
    ```bash
-   ./build.sh
+   make release
    ```
+   Builds `dist/NotifyMe.app`, signs it, copies to `/Applications`, starts the app, builds `NotifyMe.dmg`.
 
 ## Usage
 
 - Click icon to see events. Each row: checkbox, time, title, countdown, two stripes.
 - Click row to open event card.
 - Click checkbox to select events for copying.
-- Press `Cmd+Shift+N` from anywhere to create a new event from clipboard.
+- Press `Cmd+Ctrl+N` from anywhere to create a new event from clipboard.
 - `Settings`:
   - **Calendar** — new events calendar. `(default)` = system default.
   - **Timezone (display)** — menu, alarm, card. `Local` = OS.
@@ -67,20 +58,20 @@ macOS menu bar app for upcoming calendar events with reminders.
   - **Notify Before** — minutes before alarm. Includes `Custom…`.
   - **Sound** — alarm sound.
   - **Output** — audio device.
-  - **Hotkey Cmd+Shift+N** — shows `Needs Accessibility` until granted.
+  - **Hotkey Cmd+Ctrl+N** — shows `Needs Accessibility` until granted.
 - **DND until current event ends** — suppresses alarms until the ongoing meeting finishes.
 
 ## Hotkey
 
-`Cmd+Shift+N` works only if Accessibility is granted:
+`Cmd+Ctrl+N` works only if Accessibility is granted:
 
-1. `⚙️ Settings → ⌨️ Hotkey Cmd+Shift+N — Needs Accessibility` → click.
+1. `⚙️ Settings → ⌨️ Hotkey Cmd+Ctrl+N — Needs Accessibility` → click.
 2. System Settings → Privacy & Security → Accessibility opens.
 3. Enable `NotifyMe` (or add `/Applications/NotifyMe.app` with `+`).
 4. **Quit and relaunch NotifyMe.**
-5. `⚙️ Settings` shows `✓ ⌨️ Hotkey Cmd+Shift+N`.
+5. `⚙️ Settings` shows `✓ ⌨️ Hotkey Cmd+Ctrl+N`.
 
-If Accessibility is granted but the hotkey still does not fire, check that the focus is not in Finder (where `Cmd+Shift+N` creates a new folder and consumes the event). Try in TextEdit.
+If Accessibility is granted but the hotkey still does not fire, check that the focus is not in Finder (where `Cmd+Ctrl+N` creates a new folder and consumes the event). Try in TextEdit.
 
 ## Settings file
 
@@ -164,14 +155,33 @@ cd src && python3 -c "from hotkeys import is_accessibility_granted; print(is_acc
 ### Build
 
 ```bash
-./build.sh
+make ci          # clean + ruff + mypy + pytest (no build)
+make build       # pyinstaller → dist/NotifyMe.app (no sign)
+make sign        # build + restore Python.framework symlinks + codesign dist/
+make install-app # sign + copy to /Applications + sign + start
+make dmg         # sign + create NotifyMe.dmg
+make release     # build + sign + install-app + dmg
 ```
 
-Cleans `build/`, `dist/`, `src/__pycache__`, `*.pyc`; builds; patches `Info.plist`; signs; installs to `/Applications`; starts; builds DMG (if `create-dmg`); prints duration.
+Сборка идёт через `scripts/`:
+
+- `scripts/build.py` — pyinstaller + патч `Info.plist` (calendar usage descriptions).
+- `scripts/sign.py` — восстанавливает канонические симлинки `Python.framework` (pyinstaller их теряет — иначе `codesign` ругается «bundle format is ambiguous») и подписывает `dist/`.
+- `scripts/install.py` — копирует подписанный бандл в `/Applications`, поправляет симлинки для `python3.13`/`base_library.zip`/`audio_output.py`/`sounds/`, подписывает внутренние `.so`/`.dylib` и бандл.
+- `scripts/dmg.py` — собирает DMG из `dist/`.
+
+`assets/entitlements.plist` должен содержать **оба** ключа:
+
+```xml
+<key>com.apple.security.personal-information.calendars</key><true/>
+<key>com.apple.security.personal-information.calendars.full</key><true/>
+```
+
+Без `.full` на macOS 14+ приложение не сможет создавать события.
 
 ### Code signing certificate
 
-TCC binds the Calendar permission to the app's code signature. Ad-hoc signing (`codesign --sign -`) generates a new identity on every build, so macOS forgets the permission after each `./build.sh`. Use a stable certificate instead.
+TCC binds the Calendar permission to the app's code signature. Ad-hoc signing (`codesign --sign -`) generates a new identity on every build, so macOS forgets the permission after each `make release`. Use a stable certificate instead.
 
 **Option A — Keychain Access (GUI)**
 
@@ -211,36 +221,45 @@ rm -f /tmp/notifyme.{key,crt,p12}
 
 **Configure**
 
-Set in `build.sh`:
+Идентификатор задаётся в двух местах — держите их синхронными:
 
-```bash
-CODESIGN_IDENTITY="NotifyMe Dev"
-```
+- `scripts/sign.py` → `CODESIGN_IDENTITY`
+- `scripts/install.py` → `CODESIGN_IDENTITY`
 
-Then reset TCC once:
+Затем сбросьте TCC один раз:
 
 ```bash
 tccutil reset Calendar com.chep.notifyme
-./build.sh
+make release
 ```
 
-Permissions persist across rebuilds.
+Разрешения сохраняются между пересборками.
 
-If you skip the certificate, set `CODESIGN_IDENTITY="-"` (ad-hoc). The app works, but macOS will forget the Calendar permission after each rebuild.
+Если пропустить сертификат и поставить `CODESIGN_IDENTITY="-"` (ad-hoc) — приложение работает, но macOS забывает Calendar-разрешение после каждой пересборки.
 
 ### Project structure
 
 ```
 .
-├── build.sh
+├── Makefile
 ├── README.md
 ├── requirements.txt
+├── requirements-dev.txt
 ├── pyproject.toml
 ├── assets/
 │   ├── entitlements.plist
-│   └── myicon.icns
+│   ├── myicon.icns
+│   └── sounds/
 ├── scripts/
+│   ├── build.py       # pyinstaller + patch Info.plist
+│   ├── sign.py        # symlinks + codesign dist/
+│   ├── install.py     # copy to /Applications + codesign
+│   ├── dmg.py         # create-dmg
 │   └── Install_NotifyMe.command
+├── tests/
+│   ├── test_dependencies.py
+│   ├── test_logic.py
+│   └── test_logic_extra.py
 └── src/
     ├── app.py
     ├── status_bar.py

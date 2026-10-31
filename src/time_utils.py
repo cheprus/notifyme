@@ -1,9 +1,10 @@
 # src/time_utils.py
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from config import CONFIG
 
+# ---------- Таймзоны ----------
 
 def _resolve_tz(name):
     if not name or name == "Local":
@@ -43,6 +44,8 @@ def to_copy_tz(dt):
 def to_msk(dt):
     return to_display_tz(dt)
 
+
+# ---------- Форматирование ----------
 
 def format_time_delta_compact(minutes):
     minutes = int(abs(minutes))

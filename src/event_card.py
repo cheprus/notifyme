@@ -1,31 +1,49 @@
 # src/event_card.py
-import objc
 import subprocess
 from datetime import datetime
-from Foundation import NSObject, NSApplication, NSNotificationCenter
+from typing import Any
+
+import objc
 from AppKit import (
-    NSPanel, NSTextField, NSButton, NSColor, NSFont, NSMakeRect,
-    NSBezelStyleRounded, NSScreenSaverWindowLevel, NSWindowStyleMaskTitled,
-    NSWindowStyleMaskClosable, NSBackingStoreBuffered,
-    NSPasteboard, NSVisualEffectView, NSVisualEffectMaterialHUDWindow,
-    NSVisualEffectBlendingModeBehindWindow, NSVisualEffectStateActive,
-    NSViewWidthSizable, NSViewHeightSizable, NSView,
-    NSLineBreakByTruncatingTail,
-    NSWindowDidResignKeyNotification,
-    NSApplicationDidResignActiveNotification,
     NSApplicationActivationPolicyRegular,
-    NSApplicationActivationPolicyAccessory,
-    NSScrollView, NSTextView, NSBezelBorder,
+    NSApplicationDidResignActiveNotification,
+    NSBackingStoreBuffered,
+    NSBezelBorder,
+    NSBezelStyleRounded,
+    NSButton,
+    NSColor,
+    NSFont,
+    NSLineBreakByTruncatingTail,
+    NSMakeRect,
+    NSPanel,
+    NSPasteboard,
+    NSScreenSaverWindowLevel,
+    NSScrollView,
+    NSTextField,
+    NSTextView,
+    NSView,
+    NSViewHeightSizable,
+    NSViewWidthSizable,
+    NSVisualEffectBlendingModeBehindWindow,
+    NSVisualEffectMaterialHUDWindow,
+    NSVisualEffectStateActive,
+    NSVisualEffectView,
+    NSWindowDidResignKeyNotification,
+    NSWindowStyleMaskClosable,
+    NSWindowStyleMaskTitled,
 )
+from Foundation import NSApplication, NSNotificationCenter, NSObject
+
 from ui_utils import (
     format_event_datetime,
     format_event_datetime_for_copy,
-    to_display_tz,
     get_event_color,
+    to_display_tz,
 )
 
-_RETAINED_PANELS = {}
-_RETAINED_HANDLERS = {}
+# Ключ — id(panel)
+_RETAINED_PANELS: dict[int, Any] = {}
+_RETAINED_HANDLERS: dict[int, Any] = {}
 
 _GRACE_SECONDS = 0.5
 
@@ -233,7 +251,7 @@ def show_event_card(event):
 
     panel_id = id(panel)
     shown_at = {"t": datetime.now()}
-    observers_holder = {"items": []}
+    observers_holder: dict[str, list[Any]] = {"items": []}
     close_guard = {"closed": False}
 
     def cleanup_observers():

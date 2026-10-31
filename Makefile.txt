@@ -1,0 +1,74 @@
+.PHONY: help install install-dev clean lint test build sign install-app dmg release run stop restart ci
+
+PYTHON ?= /Library/Frameworks/Python.framework/Versions/3.13/bin/python3
+PIP    ?= $(PYTHON) -m pip
+
+help:
+	@echo "NotifyMe — make targets:"
+	@echo ""
+	@echo "  Setup:"
+	@echo "    make install       — install runtime deps (pip install -e .)"
+	@echo "    make install-dev   — install dev deps (pytest, ruff, mypy, pyinstaller)"
+	@echo ""
+	@echo "  Dev:"
+	@echo "    make lint          — ruff + mypy"
+	@echo "    make test          — clean + pytest"
+	@echo "    make ci            — clean + lint + test (no build, для CI)"
+	@echo "    make clean         — remove build/, dist/, __pycache__, *.pyc, .pytest_cache, *.egg-info"
+	@echo ""
+	@echo "  Build:"
+	@echo "    make build         — clean + test + PyInstaller → dist/NotifyMe.app"
+	@echo "    make sign          — build + fix symlinks + codesign dist/NotifyMe.app"
+	@echo "    make install-app   — sign + copy to /Applications + sign + start"
+	@echo "    make dmg           — sign + create DMG from dist/"
+	@echo "    make release       — build + sign + install-app + dmg"
+	@echo ""
+	@echo "  Run:"
+	@echo "    make run           — start app from /Applications"
+	@echo "    make stop          — stop app"
+	@echo "    make restart       — stop + run"
+
+install:
+	$(PIP) install -e .
+
+install-dev:
+	$(PIP) install -r requirements-dev.txt
+
+lint:
+	$(PYTHON) -m ruff check src tests
+	$(PYTHON) -m mypy src
+
+test: clean
+	$(PYTHON) -m pytest -v
+
+ci: clean lint test
+
+clean:
+	rm -rf build dist src/__pycache__ tests/__pycache__
+	rm -rf .pytest_cache
+	rm -rf src/*.egg-info
+	find src tests -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+	find src tests -name "*.pyc" -delete 2>/dev/null || true
+
+build: clean test
+	$(PYTHON) scripts/build.py
+
+sign: build
+	$(PYTHON) scripts/sign.py
+
+install-app: sign
+	$(PYTHON) scripts/install.py
+
+dmg: sign
+	$(PYTHON) scripts/dmg.py
+
+release: build sign install-app dmg
+
+run:
+	open -a /Applications/NotifyMe.app
+
+stop:
+	@pkill -f "/Applications/NotifyMe.app/Contents/MacOS/NotifyMe" || true
+	@rm -f /tmp/notifyme.lock
+
+restart: stop run

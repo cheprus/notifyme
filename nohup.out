@@ -1,9 +1,0 @@
-Traceback (most recent call last):
-  File "app.py", line 4, in <module>
-ModuleNotFoundError: No module named 'status_bar'
-[PYI-73113:ERROR] Failed to execute script 'app' due to unhandled exception: No module named 'status_bar'
-[PYI-73113:ERROR] Traceback:
-Traceback (most recent call last):
-  File "app.py", line 4, in <module>
-ModuleNotFoundError: No module named 'status_bar'
-

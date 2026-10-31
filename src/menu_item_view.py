@@ -1,21 +1,21 @@
 # src/menu_item_view.py
-import objc
 from datetime import datetime, timedelta
+
+import objc
 from AppKit import (
-    NSView, NSTextField, NSButton, NSColor, NSFont, NSMakeRect,
-    NSBezelStyleShadowlessSquare, NSLineBreakByTruncatingTail,
-    NSTextAlignmentLeft, NSTextAlignmentRight
-)
-from ui_utils import (
-    get_event_color,
-    get_calendar_color,
-    is_work_event,
-    format_countdown,
-    to_display_tz,
+    NSBezelStyleShadowlessSquare,
+    NSButton,
+    NSColor,
+    NSFont,
+    NSLineBreakByTruncatingTail,
+    NSMakeRect,
+    NSTextAlignmentLeft,
+    NSTextAlignmentRight,
+    NSTextField,
+    NSView,
 )
 
-_WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-_MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+from ui_utils import format_countdown, get_calendar_color, get_event_color, is_work_event, to_display_tz
 
 
 class ClickableView(NSView):
@@ -57,7 +57,6 @@ class MenuItemView(ClickableView):
         stripe_y = 4
         stripe_w = 3
 
-        # Полоска времени
         self.stripe_time = NSView.alloc().initWithFrame_(
             NSMakeRect(3, stripe_y, stripe_w, stripe_h)
         )
@@ -69,7 +68,6 @@ class MenuItemView(ClickableView):
             self.stripe_time.layer().setCornerRadius_(1.5)
         self.addSubview_(self.stripe_time)
 
-        # Полоска календаря
         self.stripe_cal = NSView.alloc().initWithFrame_(
             NSMakeRect(7, stripe_y, stripe_w, stripe_h)
         )
@@ -84,7 +82,6 @@ class MenuItemView(ClickableView):
             self.stripe_cal.layer().setCornerRadius_(1.5)
         self.addSubview_(self.stripe_cal)
 
-        # Чекбокс
         self.checkbox = NSButton.alloc().initWithFrame_(
             NSMakeRect(16, (height - 20) / 2, 22, 20)
         )
@@ -97,13 +94,12 @@ class MenuItemView(ClickableView):
         self.checkbox.setAction_("toggleCheckbox:")
         self.addSubview_(self.checkbox)
 
-        # Время (или дата + время для Next 7 Days / Tomorrow)
         start = event.get("start")
         if start is not None:
             start_disp = to_display_tz(start)
             if show_date:
-                day_str = _WEEKDAYS_RU[start_disp.weekday()]
-                month_str = _MONTHS_RU[start_disp.month - 1]
+                day_str = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][start_disp.weekday()]
+                month_str = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"][start_disp.month - 1]
                 time_text = f"{day_str}, {start_disp.day} {month_str} {start_disp.strftime('%H:%M')}"
                 time_w = 130
             else:
@@ -126,7 +122,6 @@ class MenuItemView(ClickableView):
         self.time_field.setAlignment_(NSTextAlignmentLeft)
         self.addSubview_(self.time_field)
 
-        # Обратный отсчёт
         countdown_text = format_countdown(event.get("start"), event.get("end"), now)
         is_ongoing = countdown_text.startswith("▶")
 
@@ -150,7 +145,6 @@ class MenuItemView(ClickableView):
         self.countdown_field.setAlignment_(NSTextAlignmentRight)
         self.addSubview_(self.countdown_field)
 
-        # Тема
         title_x = 40 + time_w + 6
         title_w = width - title_x - 90
         self.text_field = NSTextField.alloc().initWithFrame_(
@@ -188,9 +182,7 @@ class MenuItemView(ClickableView):
         start_date = to_display_tz(start).date()
         if start_date == today:
             return False
-        if start_date == today + timedelta(days=1):
-            return False
-        return True
+        return start_date != today + timedelta(days=1)
 
     def toggleCheckbox_(self, sender):
         ev_id = self.event["id"]
@@ -200,4 +192,3 @@ class MenuItemView(ClickableView):
         else:
             self.controller.selected_ids.add(ev_id)
             sender.setTitle_("☑")
-        self.controller.copy_selected_to_clipboard()

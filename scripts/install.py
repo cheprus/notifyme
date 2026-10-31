@@ -5,7 +5,8 @@ Fixes:
 1. Python.framework symlinks (bundle format is ambiguous).
 2. base_library.zip moved to Resources + symlink.
 3. audio_output.py moved to Resources + symlink.
-4. python3.13 renamed to python313 everywhere + symlink (codesign rejects dots).
+4. sounds/ moved to Resources + symlink (codesign can't sign .mp3).
+5. python3.13 renamed to python313 everywhere + symlink (codesign rejects dots).
 """
 import glob
 import os
@@ -58,7 +59,6 @@ def start_app():
 
 
 def fix_python_framework_symlinks(app_bundle):
-    """Restore canonical symlinks in Python.framework."""
     frameworks_dir = os.path.join(app_bundle, "Contents", "Frameworks")
     pattern = os.path.join(frameworks_dir, "Python.framework")
     matches = glob.glob(pattern)
@@ -111,7 +111,6 @@ def fix_python_framework_symlinks(app_bundle):
 
 
 def _move_to_resources_and_link(app_path, filename):
-    """Move file from Contents/Frameworks to Contents/Resources and create symlink."""
     fw_dir = app_path / "Contents" / "Frameworks"
     resources_dir = app_path / "Contents" / "Resources"
     src = fw_dir / filename
@@ -119,7 +118,6 @@ def _move_to_resources_and_link(app_path, filename):
     if not src.exists():
         print(f"  {filename} not found in Frameworks — skip")
         return
-
     if src.is_symlink():
         print(f"  {filename} already a symlink — skip")
         return
@@ -141,8 +139,26 @@ def fix_audio_output_py(app_path):
     _move_to_resources_and_link(app_path, "audio_output.py")
 
 
+def fix_sounds_dir(app_path):
+    fw_sounds = app_path / "Contents" / "Frameworks" / "sounds"
+    res_sounds = app_path / "Contents" / "Resources" / "sounds"
+
+    if not fw_sounds.exists():
+        print("  sounds/ not found in Frameworks — skip")
+        return
+    if fw_sounds.is_symlink():
+        print("  sounds/ already a symlink — skip")
+        return
+
+    res_sounds.parent.mkdir(parents=True, exist_ok=True)
+    n = len(list(fw_sounds.iterdir()))
+    print(f"  Moving sounds/ to Resources ({n} files)...")
+    shutil.move(str(fw_sounds), str(res_sounds))
+    os.symlink(os.path.join("..", "Resources", "sounds"), fw_sounds)
+    print("  Created: Frameworks/sounds -> ../Resources/sounds")
+
+
 def _rename_dotted_dir(old_dir):
-    """Rename dir 'python3.13' to 'python313' and create symlink."""
     if not old_dir.exists():
         return False
     if old_dir.is_symlink():
@@ -166,7 +182,6 @@ def _rename_dotted_dir(old_dir):
 
 
 def fix_python313_folder(app_path):
-    """Rename python3.13 to python313 everywhere + symlink."""
     candidates = []
 
     fw_root = app_path / "Contents" / "Frameworks" / "python3.13"
@@ -196,7 +211,6 @@ def fix_python313_folder(app_path):
 
 
 def sign_inner_binaries(app_path):
-    """Sign all Mach-O inside Python.framework (Python, *.so, *.dylib)."""
     fw = app_path / "Contents" / "Frameworks" / "Python.framework"
     if not fw.exists():
         print("  No Python.framework — skip inner sign")
@@ -268,6 +282,9 @@ def main():
     print("=== Fixing audio_output.py ===")
     fix_audio_output_py(INSTALL_PATH)
 
+    print("=== Fixing sounds/ ===")
+    fix_sounds_dir(INSTALL_PATH)
+
     print("=== Signing inner binaries ===")
     sign_inner_binaries(INSTALL_PATH)
 
@@ -289,10 +306,12 @@ def main():
         ["codesign", "-d", "--entitlements", ":-", str(INSTALL_PATH)],
         capture_output=True, text=True,
     )
-    if "calendars" not in check.stdout and "calendars" not in check.stderr:
-        print("WARNING: entitlements not found")
-    else:
-        print("✅ Entitlements OK")
+    combined = (check.stdout or "") + (check.stderr or "")
+    if "personal-information.calendars.full" not in combined:
+        print("ERROR: full calendar entitlement missing in signed bundle")
+        print(combined)
+        sys.exit(1)
+    print("✅ Entitlements OK (full calendar access present)")
 
     start_app()
     print(f"✅ Installed and started: {INSTALL_PATH}")

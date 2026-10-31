@@ -1,8 +1,8 @@
 # src/clipboard_utils.py
 from AppKit import NSPasteboard
 
-from time_utils import format_event_datetime_for_copy
 from config import CONFIG
+from time_utils import format_event_datetime_for_copy
 
 
 def format_event_for_clipboard(ev, now):

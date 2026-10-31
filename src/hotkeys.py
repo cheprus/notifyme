@@ -1,8 +1,12 @@
 # src/hotkeys.py
+from typing import Any
+
 import objc
 from AppKit import (
-    NSEvent, NSEventModifierFlagCommand, NSEventModifierFlagControl,
+    NSEvent,
     NSEventMaskKeyDown,
+    NSEventModifierFlagCommand,
+    NSEventModifierFlagControl,
 )
 from Foundation import NSObject
 
@@ -20,7 +24,8 @@ except ImportError:
     CGPreflightPostEventAccess = None
     _HAS_CG = False
 
-_RETAINED = {}
+# _RETAINED хранит HotkeyMonitor, чтобы NSEvent его не собрал GC
+_RETAINED: dict[str, Any] = {}
 
 
 class HotkeyMonitor(NSObject):
@@ -36,28 +41,24 @@ class HotkeyMonitor(NSObject):
             mods = event.modifierFlags() & 0xFFFF0000
             chars = (event.charactersIgnoringModifiers() or "").lower()
             required = NSEventModifierFlagCommand | NSEventModifierFlagControl
-            if chars == "n" and (mods & required) == required:
-                if self._callback:
-                    self._callback(None)
+            if chars == "n" and (mods & required) == required and self._callback:
+                self._callback(None)
         except Exception as e:
             print(f"[DEBUG] hotkey handle error: {e}", flush=True)
 
 
 def is_accessibility_granted():
-    """Реальная проверка доступа. Не кэширует результат в Python."""
     if _HAS_CG:
         try:
             if CGPreflightPostEventAccess():
                 return True
         except Exception:
             pass
-
     if _HAS_AX:
         try:
             return bool(AXIsProcessTrusted())
         except Exception:
             pass
-
     return False
 
 

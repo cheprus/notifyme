@@ -1,14 +1,14 @@
 # src/calendar_service.py
-import sys
-import os
 import re
-import threading
 import subprocess
+import sys
+import threading
 from datetime import datetime, timedelta
+from typing import Any
 
 try:
     import EventKit
-    from Foundation import NSDate, NSURL
+    from Foundation import NSDate
 except ImportError:
     print("Please install: pip install pyobjc-framework-EventKit")
     sys.exit(1)
@@ -33,14 +33,8 @@ def _log(msg):
         pass
 
 
-# ---------- Нормализация и восстановление ссылок ----------
-
-_ANY_ISSUE_URL_RE = re.compile(
-    r'https?://[^\s]*?/issues/(\d+)',
-    re.IGNORECASE
-)
-
-_HASH_ISSUE_RE = re.compile(r'(?:^|\s)#(\d+)(?=\s|$|[,.;:!?])')
+_ANY_ISSUE_URL_RE = re.compile(r"https?://[^\s]*?/issues/(\d+)", re.IGNORECASE)
+_HASH_ISSUE_RE = re.compile(r"(?:^|\s)#(\d+)(?=\s|$|[,.;:!?])")
 
 
 def _normalize_title(title):
@@ -48,7 +42,7 @@ def _normalize_title(title):
         return title
     t = title.strip()
     t = _ANY_ISSUE_URL_RE.sub(lambda m: f"#{m.group(1)}", t)
-    t = re.sub(r'\s{2,}', ' ', t).strip()
+    t = re.sub(r"\s{2,}", " ", t).strip()
     return t
 
 
@@ -58,7 +52,7 @@ def _recover_tracker_url(title, notes):
     for domain in CONFIG.get("custom_tracker_domains", []) or []:
         if not domain:
             continue
-        m = re.search(r'https?://[^\s]*?' + re.escape(domain) + r'[^\s]*', haystack, re.IGNORECASE)
+        m = re.search(r"https?://[^\s]*?" + re.escape(domain) + r"[^\s]*", haystack, re.IGNORECASE)
         if m:
             return m.group(0)
 
@@ -100,15 +94,16 @@ def request_calendar_access():
     return store
 
 
-def list_calendars(store):
-    result = []
+def list_calendars(store) -> list[dict[str, Any]]:
+    # mypy: result: list[dict[str, Any]]
+    result: list[dict[str, Any]] = []
     if store is None:
         return result
     try:
         cals = store.calendarsForEntityType_(EventKit.EKEntityTypeEvent)
         for cal in cals:
             try:
-                info = {
+                info: dict[str, Any] = {
                     "title": cal.title(),
                     "type": cal.type(),
                     "allows_modifications": cal.allowsContentModifications(),
@@ -238,39 +233,39 @@ def get_dialog_message(start_dt, now):
 # ---------- Классификация ссылок ----------
 
 _TRACKER_PATTERNS = [
-    r'support\.igtel\.ru',
-    r'jira',
-    r'confluence',
-    r'atlassian\.net',
-    r'github\.com',
-    r'gitlab',
-    r'bitbucket',
-    r'youtrack',
-    r'redmine',
-    r'trello\.com',
-    r'asana\.com',
-    r'notion\.so',
-    r'miro\.com',
-    r'/issues/',
-    r'/browse/',
-    r'/tickets?/',
-    r'/tasks?/',
-    r'/wiki/',
+    r"support\.igtel\.ru",
+    r"jira",
+    r"confluence",
+    r"atlassian\.net",
+    r"github\.com",
+    r"gitlab",
+    r"bitbucket",
+    r"youtrack",
+    r"redmine",
+    r"trello\.com",
+    r"asana\.com",
+    r"notion\.so",
+    r"miro\.com",
+    r"/issues/",
+    r"/browse/",
+    r"/tickets?/",
+    r"/tasks?/",
+    r"/wiki/",
 ]
 
 _MEETING_PATTERNS = [
-    r'\bmts-link\.ru',
-    r'\bzoom\.us',
-    r'\bmeet\.google\.com',
-    r'\bteams\.microsoft\.com',
-    r'\bwebex\.com',
-    r'\bwhereby\.com',
-    r'\bjitsi',
-    r'\bmeet\.jivo\.ru',
-    r'/j/\d+',
-    r'/session/\d+',
-    r'/meet/',
-    r'/conference/',
+    r"\bmts-link\.ru",
+    r"\bzoom\.us",
+    r"\bmeet\.google\.com",
+    r"\bteams\.microsoft\.com",
+    r"\bwebex\.com",
+    r"\bwhereby\.com",
+    r"\bjitsi",
+    r"\bmeet\.jivo\.ru",
+    r"/j/\d+",
+    r"/session/\d+",
+    r"/meet/",
+    r"/conference/",
 ]
 
 
@@ -286,34 +281,34 @@ def _custom_patterns(key):
 
 def classify_url(url):
     if not url:
-        return 'unknown'
+        return "unknown"
     u = url.lower().strip()
 
     for pat in _custom_patterns("custom_meeting_domains"):
         if re.search(pat, u):
-            return 'meeting'
+            return "meeting"
 
     for pat in _custom_patterns("custom_tracker_domains"):
         if re.search(pat, u):
-            return 'tracker'
+            return "tracker"
 
     for pat in _MEETING_PATTERNS:
         if re.search(pat, u):
-            return 'meeting'
+            return "meeting"
     for pat in _TRACKER_PATTERNS:
         if re.search(pat, u):
-            return 'tracker'
-    return 'unknown'
+            return "tracker"
+    return "unknown"
 
 
 def split_links(tracker_url, meeting_url, notes):
-    url_field = (tracker_url or '').strip()
-    location_field = (meeting_url or '').strip()
+    url_field = (tracker_url or "").strip()
+    location_field = (meeting_url or "").strip()
 
     if url_field and location_field:
         url_kind = classify_url(url_field)
         loc_kind = classify_url(location_field)
-        if url_kind == 'meeting' and loc_kind == 'tracker':
+        if url_kind == "meeting" and loc_kind == "tracker":
             return location_field, url_field
         return url_field, location_field
 
@@ -321,19 +316,19 @@ def split_links(tracker_url, meeting_url, notes):
         found = re.findall(r'https?://[^\s<>"\']+', notes)
         for link in found:
             kind = classify_url(link)
-            if kind == 'tracker' and not url_field:
+            if kind == "tracker" and not url_field:
                 url_field = link
-            elif kind == 'meeting' and not location_field:
+            elif kind == "meeting" and not location_field:
                 location_field = link
 
     if url_field and not location_field:
         kind = classify_url(url_field)
-        if kind == 'meeting':
-            location_field, url_field = url_field, ''
+        if kind == "meeting":
+            location_field, url_field = url_field, ""
     if location_field and not url_field:
         kind = classify_url(location_field)
-        if kind == 'tracker':
-            url_field, location_field = location_field, ''
+        if kind == "tracker":
+            url_field, location_field = location_field, ""
 
     return url_field, location_field
 
@@ -341,7 +336,7 @@ def split_links(tracker_url, meeting_url, notes):
 # ---------- AppleScript helpers ----------
 
 def _escape_applescript(s):
-    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "")
 
 
 def _run_osascript(script, timeout=10):
@@ -382,7 +377,7 @@ def _try_create_event(title, start_dt, end_dt, notes, tracker_url, meeting_url, 
         end try
         '''
     else:
-        cal_lookup = '''
+        cal_lookup = """
         set targetCal to missing value
         try
             repeat with c in calendars
@@ -395,7 +390,7 @@ def _try_create_event(title, start_dt, end_dt, notes, tracker_url, meeting_url, 
         if targetCal is missing value then
             return "ERROR: no writable calendar found"
         end if
-        '''
+        """
 
     script_create = f'''
     tell application "Calendar"
@@ -477,9 +472,8 @@ def create_event_via_applescript(title, start_dt, end_dt, notes, url, video_url=
     configured = _target_calendar_name()
     if configured and _calendar_exists(store, configured):
         candidates.append((configured, "config"))
-    else:
-        if configured:
-            _log(f"Configured calendar {configured!r} not found — trying default")
+    elif configured:
+        _log(f"Configured calendar {configured!r} not found — trying default")
     default_name = get_default_calendar_name(store)
     if default_name:
         candidates.append((default_name, "default"))

@@ -1,35 +1,54 @@
 # src/status_bar.py
-import objc, subprocess, os, sys
+import contextlib
+import subprocess
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from Foundation import NSDate, NSTimer, NSObject
-from AppKit import (
-    NSStatusBar, NSVariableStatusItemLength, NSMenu, NSMenuItem,
-    NSImage, NSMakeRect, NSPasteboard,
-    NSAlert, NSTextField, NSApplication, NSStatusWindowLevel
-)
-from menu_item_view import MenuItemView
-from calendar_service import (
-    get_upcoming_events, get_week_events, create_event_via_applescript, list_calendars
-)
-from calendar_icon import generate_hourglass_icon
-from ui_utils import (
-    get_status_color, get_event_color, format_event_for_clipboard
-)
-from config import (
-    CONFIG, save_config, AVAILABLE_TIMEZONES, AVAILABLE_SOUNDS,
-    NOTIFY_BEFORE_PRESETS, AUTO_CLOSE_PRESETS
-)
-from state_manager import load_state, save_state
-from dialogs import show_alarm, close_all_alarms, _get_audio_outputs
+from typing import Any
 
+import objc
+from AppKit import (
+    NSAlert,
+    NSApplication,
+    NSImage,
+    NSMakeRect,
+    NSMenu,
+    NSMenuItem,
+    NSPasteboard,
+    NSStatusBar,
+    NSStatusWindowLevel,
+    NSTextField,
+    NSVariableStatusItemLength,
+)
+from Foundation import NSObject
+
+import audio_output
+from alarm_utils import _resolve_sound_path_for, close_all_alarms
+from calendar_icon import generate_hourglass_icon
+from calendar_service import get_upcoming_events, get_week_events
+from config import CONFIG, save_config
+from dialogs import show_alarm
+from menu_builders import build_settings_menu
+from menu_item_view import MenuItemView
+from state_manager import load_state, save_state
+from ui_utils import format_event_for_clipboard, get_status_color
+
+# install_hotkey может быть None, если модуль hotkeys недоступен
+install_hotkey: Callable[[Any], Any] | None
 try:
     from hotkeys import install_hotkey, is_accessibility_granted
     _HAS_HOTKEYS = True
 except ImportError as e:
     print(f"[DEBUG] hotkeys not available: {e}", flush=True)
     install_hotkey = None
-    is_accessibility_granted = lambda: False
+
+    def is_accessibility_granted():
+        return False
+
     _HAS_HOTKEYS = False
+
+
+# Удерживать preview-handle, пока играет, иначе AVAudioEngine соберётся GC.
+_PREVIEW_HANDLE: list[Any] = []
 
 
 def _parse_dnd_until():
@@ -58,7 +77,7 @@ class StatusBarController(NSObject):
         self._icon_path = None
         self._hotkey_monitor = None
 
-        if _HAS_HOTKEYS and is_accessibility_granted():
+        if _HAS_HOTKEYS and install_hotkey is not None and is_accessibility_granted():
             try:
                 self._hotkey_monitor = install_hotkey(self.handleHotkey_)
                 print("[DEBUG] hotkey installed", flush=True)
@@ -102,18 +121,48 @@ class StatusBarController(NSObject):
         print(f"[DEBUG] Copied {len(selected_events)} events", flush=True)
 
     def playSoundPreview_(self, sender):
-        sound_name = sender.title().replace("✓ ", "").replace("   ", "").strip()
-        sound_path = f"/System/Library/Sounds/{sound_name}.aiff"
-        if os.path.exists(sound_path):
-            subprocess.Popen(["afplay", sound_path])
-            CONFIG["sound_file"] = sound_path
-            save_config(CONFIG)
+        raw = sender.title().replace("✓ ", "").replace("   ", "").strip()
+        path = _resolve_sound_path_for(raw)
+        if not path:
+            print(f"[DEBUG] Sound not found: {raw}", flush=True)
+            return
+
+        # Остановить предыдущий preview, если ещё играет
+        while _PREVIEW_HANDLE:
+            audio_output.stop_playing(_PREVIEW_HANDLE.pop())
+
+        device = CONFIG.get("sound_output_device", "Default")
+        handle = audio_output.play_on_device(path, device, loops=0)
+        if handle is not None:
+            _PREVIEW_HANDLE.append(handle)
+            print(f"[DEBUG] Preview on {device!r}: {raw}", flush=True)
+        else:
+            # Фолбэк: системный дефолт
+            subprocess.Popen(["afplay", path])
+            print(f"[DEBUG] Preview fallback (system default): {raw}", flush=True)
+
+        CONFIG["sound_file"] = raw
+        save_config(CONFIG)
 
     def handleNotifyTime_(self, sender):
         tag = sender.tag()
         CONFIG["notify_minutes_before"] = tag
         save_config(CONFIG)
-        print(f"[DEBUG] Notify time set to {tag} min", flush=True)
+        print(f"[DEBUG] Notify Before set to {tag} min", flush=True)
+        self.update()
+
+    def handleNotifyAfter_(self, sender):
+        tag = sender.tag()
+        CONFIG["notify_minutes_after"] = tag
+        save_config(CONFIG)
+        print(f"[DEBUG] Notify After set to {tag} min", flush=True)
+        self.update()
+
+    def handleSnoozeTime_(self, sender):
+        tag = sender.tag()
+        CONFIG["snooze_minutes"] = tag
+        save_config(CONFIG)
+        print(f"[DEBUG] Snooze set to {tag} min", flush=True)
         self.update()
 
     def handleNotifyCustom_(self, sender):
@@ -129,10 +178,8 @@ class StatusBarController(NSObject):
         alert.window().setInitialFirstResponder_(field)
 
         alert.window().setLevel_(NSStatusWindowLevel)
-        try:
+        with contextlib.suppress(Exception):
             NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        except Exception:
-            pass
         alert.window().makeKeyAndOrderFront_(None)
 
         if alert.runModal() == 1000:
@@ -253,10 +300,8 @@ class StatusBarController(NSObject):
         alert.setAlertStyle_(1)
 
         alert.window().setLevel_(NSStatusWindowLevel)
-        try:
+        with contextlib.suppress(Exception):
             NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        except Exception:
-            pass
         alert.window().makeKeyAndOrderFront_(None)
 
         if alert.runModal() == 1000:
@@ -273,305 +318,6 @@ class StatusBarController(NSObject):
 
     def openCalendar_(self, sender):
         subprocess.Popen(["open", "-a", "Calendar"])
-
-    def _build_timezone_submenu(self, current, action_selector):
-        sub = NSMenu.alloc().init()
-
-        flat = ["Local", "UTC"]
-        for tz in flat:
-            prefix = "✓ " if tz == current else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{prefix}{tz}", action_selector, ""
-            )
-            it.setRepresentedObject_(tz)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        if current and current not in flat:
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"✓ {current}", action_selector, ""
-            )
-            it.setRepresentedObject_(current)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        sub.addItem_(NSMenuItem.separatorItem())
-
-        regions = {}
-        for tz in AVAILABLE_TIMEZONES:
-            if tz in ("Local", "UTC") or tz == current:
-                continue
-            if "/" in tz:
-                region = tz.split("/", 1)[0]
-            else:
-                region = "Other"
-            regions.setdefault(region, []).append(tz)
-
-        preferred = ["Europe", "Asia", "America", "Africa", "Australia", "Pacific", "Atlantic", "Indian"]
-        ordered = []
-        for r in preferred:
-            if r in regions:
-                ordered.append(r)
-        for r in sorted(regions.keys()):
-            if r not in ordered:
-                ordered.append(r)
-
-        for region in ordered:
-            region_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{region} ({len(regions[region])})", None, ""
-            )
-            region_sub = NSMenu.alloc().init()
-            for tz in regions[region]:
-                it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                    tz, action_selector, ""
-                )
-                it.setRepresentedObject_(tz)
-                it.setTarget_(self)
-                region_sub.addItem_(it)
-            region_item.setSubmenu_(region_sub)
-            sub.addItem_(region_item)
-
-        return sub
-
-    def _build_notify_before_submenu(self):
-        sub = NSMenu.alloc().init()
-        current_min = CONFIG.get("notify_minutes_before", 5)
-
-        for mins in NOTIFY_BEFORE_PRESETS:
-            if mins == 0:
-                label = "At start"
-            elif mins % 60 == 0:
-                label = f"{mins // 60}h"
-            else:
-                label = f"{mins} min"
-            prefix = "✓ " if mins == current_min else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{prefix}{label}", "handleNotifyTime:", ""
-            )
-            it.setTag_(mins)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        if current_min not in NOTIFY_BEFORE_PRESETS:
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"✓ {current_min} min (custom)", "handleNotifyTime:", ""
-            )
-            it.setTag_(current_min)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        sub.addItem_(NSMenuItem.separatorItem())
-        it_custom = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Custom…", "handleNotifyCustom:", ""
-        )
-        it_custom.setTarget_(self)
-        sub.addItem_(it_custom)
-
-        return sub
-
-    def _build_auto_close_submenu(self):
-        sub = NSMenu.alloc().init()
-        current = CONFIG.get("auto_close_minutes", 15)
-
-        for mins in AUTO_CLOSE_PRESETS:
-            prefix = "✓ " if mins == current else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{prefix}{mins} min", "handleAutoClose:", ""
-            )
-            it.setTag_(mins)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        if current not in AUTO_CLOSE_PRESETS:
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"✓ {current} min (custom)", "handleAutoClose:", ""
-            )
-            it.setTag_(current)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        return sub
-
-    def _build_pulse_submenu(self):
-        sub = NSMenu.alloc().init()
-
-        on_secs = CONFIG.get("alarm_sound_on_seconds", 10)
-        off_secs = CONFIG.get("alarm_sound_off_seconds", 60)
-
-        on_label = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"Sound: {on_secs} sec", None, ""
-        )
-        on_label.setEnabled_(False)
-        sub.addItem_(on_label)
-
-        for secs in [5, 10, 15, 20, 30]:
-            prefix = "✓ " if secs == on_secs else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{prefix}{secs} sec", "handlePulseOn:", ""
-            )
-            it.setTag_(secs)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        sub.addItem_(NSMenuItem.separatorItem())
-
-        off_label = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"Silence: {off_secs} sec", None, ""
-        )
-        off_label.setEnabled_(False)
-        sub.addItem_(off_label)
-
-        for secs in [15, 30, 60, 120, 300]:
-            prefix = "✓ " if secs == off_secs else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{prefix}{secs} sec", "handlePulseOff:", ""
-            )
-            it.setTag_(secs)
-            it.setTarget_(self)
-            sub.addItem_(it)
-
-        return sub
-
-    def _build_settings_menu(self):
-        settings_menu = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("⚙️ Settings", None, "")
-        settings_sub = NSMenu.alloc().init()
-
-        def add_header(title):
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
-            it.setEnabled_(False)
-            settings_sub.addItem_(it)
-
-        # ===== Alarm =====
-        add_header("── Alarm ──")
-
-        time_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("⏱ Notify Before", None, "")
-        time_item.setSubmenu_(self._build_notify_before_submenu())
-        settings_sub.addItem_(time_item)
-
-        auto_close_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("⏲ Auto-close Alarm", None, "")
-        auto_close_item.setSubmenu_(self._build_auto_close_submenu())
-        settings_sub.addItem_(auto_close_item)
-
-        pulse_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("🔔 Alarm Pulse", None, "")
-        pulse_item.setSubmenu_(self._build_pulse_submenu())
-        settings_sub.addItem_(pulse_item)
-
-        sound_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("🔊 Sound", None, "")
-        sound_sub = NSMenu.alloc().init()
-        current_sound = os.path.basename(CONFIG.get("sound_file", "")).replace(".aiff", "")
-        for snd in AVAILABLE_SOUNDS:
-            prefix = "✓ " if snd == current_sound else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"{prefix}{snd}", "playSoundPreview:", "")
-            it.setTarget_(self)
-            sound_sub.addItem_(it)
-        sound_item.setSubmenu_(sound_sub)
-        settings_sub.addItem_(sound_item)
-
-        out_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("🔈 Output", None, "")
-        out_sub = NSMenu.alloc().init()
-        current_out = CONFIG.get("sound_output_device", "Default")
-        try:
-            outputs = _get_audio_outputs()
-        except Exception:
-            outputs = ["Default"]
-        for dev in outputs:
-            prefix = "✓ " if dev == current_out else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"{prefix}{dev}", "handleAudioOutput:", "")
-            it.setRepresentedObject_(dev)
-            it.setTarget_(self)
-            out_sub.addItem_(it)
-        out_item.setSubmenu_(out_sub)
-        settings_sub.addItem_(out_item)
-
-        settings_sub.addItem_(NSMenuItem.separatorItem())
-
-        # ===== Calendar =====
-        add_header("── Calendar ──")
-
-        cal_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("📅 Calendar", None, "")
-        cal_sub = NSMenu.alloc().init()
-        current_cal = CONFIG.get("target_calendar_name", "") or ""
-        try:
-            cals = list_calendars(self.app.store) if self.app.store else []
-            cal_names = [c.get("title") for c in cals if c.get("title")]
-        except Exception:
-            cal_names = []
-
-        if current_cal and current_cal not in cal_names:
-            current_cal = ""
-
-        prefix = "✓ " if not current_cal else "   "
-        it_default = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"{prefix}(default)", "handleCalendar:", ""
-        )
-        it_default.setRepresentedObject_("")
-        it_default.setTarget_(self)
-        cal_sub.addItem_(it_default)
-
-        for cal_name in cal_names:
-            prefix = "✓ " if cal_name == current_cal else "   "
-            it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"{prefix}{cal_name}", "handleCalendar:", ""
-            )
-            it.setRepresentedObject_(cal_name)
-            it.setTarget_(self)
-            cal_sub.addItem_(it)
-
-        cal_item.setSubmenu_(cal_sub)
-        settings_sub.addItem_(cal_item)
-
-        tz_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("🌍 Timezone (display)", None, "")
-        current_tz = CONFIG.get("display_timezone", "Local")
-        tz_item.setSubmenu_(self._build_timezone_submenu(current_tz, "handleDisplayTimezone:"))
-        settings_sub.addItem_(tz_item)
-
-        tz_copy_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("📋 Timezone (copy)", None, "")
-        current_copy_tz = CONFIG.get("copy_timezone", "Local")
-        tz_copy_item.setSubmenu_(self._build_timezone_submenu(current_copy_tz, "handleCopyTimezone:"))
-        settings_sub.addItem_(tz_copy_item)
-
-        settings_sub.addItem_(NSMenuItem.separatorItem())
-
-        # ===== System =====
-        add_header("── System ──")
-
-        if _HAS_HOTKEYS:
-            ax_granted = is_accessibility_granted()
-            if ax_granted:
-                hotkey_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                    "✓ ⌨️ Hotkey Cmd+Ctrl+N", None, ""
-                )
-                hotkey_item.setEnabled_(False)
-                settings_sub.addItem_(hotkey_item)
-            else:
-                hotkey_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                    "⌨️ Hotkey Cmd+Ctrl+N — Needs Accessibility",
-                    "openAccessibilitySettings:", ""
-                )
-                hotkey_item.setTarget_(self)
-                settings_sub.addItem_(hotkey_item)
-
-                hint_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                    "   → System Settings → Privacy → Accessibility", None, ""
-                )
-                hint_item.setEnabled_(False)
-                settings_sub.addItem_(hint_item)
-
-        clear_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "🔄 Clear History", "clearHistory:", ""
-        )
-        clear_item.setTarget_(self)
-        settings_sub.addItem_(clear_item)
-
-        notes_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"{'✓' if CONFIG.get('include_notes_in_copy', False) else '  '} 📝 Include Notes in Copy",
-            "toggleIncludeNotes:", ""
-        )
-        notes_item.setTarget_(self)
-        settings_sub.addItem_(notes_item)
-
-        settings_menu.setSubmenu_(settings_sub)
-        return settings_menu
 
     def update(self):
         try:
@@ -617,7 +363,11 @@ class StatusBarController(NSObject):
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
 
-            self.menu.addItem_(self._build_settings_menu())
+            self.menu.addItem_(build_settings_menu(
+                self,
+                is_accessibility_granted=is_accessibility_granted if _HAS_HOTKEYS else None,
+                has_hotkeys=_HAS_HOTKEYS,
+            ))
 
             dnd = _parse_dnd_until()
             if dnd is not None and dnd > now:
@@ -687,7 +437,9 @@ class StatusBarController(NSObject):
                 for ev in next_week_events[:30]:
                     add_event_item(ev, show_date=True)
                 if len(next_week_events) > 30:
-                    item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"... and {len(next_week_events) - 30} more", None, "")
+                    item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                        f"... and {len(next_week_events) - 30} more", None, ""
+                    )
                     item.setEnabled_(False)
                     self.menu.addItem_(item)
         except Exception as e:
@@ -707,14 +459,17 @@ class StatusBarController(NSObject):
             now = datetime.now()
             events = get_upcoming_events(self.app.store)
             notify_before = CONFIG.get("notify_minutes_before", 5)
+            notify_after = CONFIG.get("notify_minutes_after", 2)
             hyst = 5.0 / 60.0
             to_notify = []
             for ev in events:
                 delta_minutes = (ev["start"] - now).total_seconds() / 60.0
-                if -2.0 <= delta_minutes <= notify_before + hyst:
-                    if ev["id"] not in self.notified_ids:
-                        to_notify.append(ev)
-                        self.notified_ids.add(ev["id"])
+                if (
+                    -notify_after <= delta_minutes <= notify_before + hyst
+                    and ev["id"] not in self.notified_ids
+                ):
+                    to_notify.append(ev)
+                    self.notified_ids.add(ev["id"])
             if to_notify:
                 print(f"[DEBUG] Notifying {len(to_notify)} events", flush=True)
                 show_alarm(to_notify)

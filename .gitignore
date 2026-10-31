@@ -30,3 +30,4 @@ icon.iconset/
 
 # pip install -e .
 *.egg-info/
+.build-stamp

@@ -24,7 +24,6 @@ def run(cmd, check=True):
 
 
 def fix_python_framework_symlinks(app_bundle):
-    """Restore canonical symlinks in Python.framework."""
     frameworks_dir = os.path.join(app_bundle, "Contents", "Frameworks")
     pattern = os.path.join(frameworks_dir, "Python.framework")
     matches = glob.glob(pattern)
@@ -49,7 +48,6 @@ def fix_python_framework_symlinks(app_bundle):
         version = sorted(versions)[-1]
         print(f"    version: {version}")
 
-        # 1. Versions/Current -> version
         current_link = os.path.join(versions_dir, "Current")
         if os.path.islink(current_link):
             print("    Versions/Current already a symlink")
@@ -62,7 +60,6 @@ def fix_python_framework_symlinks(app_bundle):
             os.symlink(version, current_link)
             print(f"    Created: Versions/Current -> {version}")
 
-        # 2. Python -> Versions/Current/Python
         python_link = os.path.join(fw, "Python")
         if os.path.islink(python_link):
             print("    Python already a symlink")
@@ -75,7 +72,6 @@ def fix_python_framework_symlinks(app_bundle):
             os.symlink(os.path.join("Versions", "Current", "Python"), python_link)
             print("    Created: Python -> Versions/Current/Python")
 
-        # 3. Resources -> Versions/Current/Resources
         resources_link = os.path.join(fw, "Resources")
         if os.path.islink(resources_link):
             print("    Resources already a symlink")
@@ -88,7 +84,6 @@ def fix_python_framework_symlinks(app_bundle):
             os.symlink(os.path.join("Versions", "Current", "Resources"), resources_link)
             print("    Created: Resources -> Versions/Current/Resources")
 
-        # 4. Headers -> Versions/Current/Headers (если есть)
         headers_link = os.path.join(fw, "Headers")
         headers_target = os.path.join(versions_dir, version, "Headers")
         if os.path.isdir(headers_target) and not os.path.islink(headers_link):
@@ -109,7 +104,6 @@ def main():
         print(f"ERROR: {APP_BUNDLE} not found — run `make build` first")
         sys.exit(1)
 
-    # Проверка сертификата
     result = subprocess.run(
         ["security", "find-identity", "-p", "codesigning"],
         capture_output=True, text=True
@@ -121,11 +115,9 @@ def main():
         sys.exit(1)
     print(f"=== Using code signing identity: {CODESIGN_IDENTITY} ===")
 
-    # Восстановить симлинки
     print("=== Fixing Python.framework symlinks ===")
     fix_python_framework_symlinks(str(APP_BUNDLE))
 
-    # Подписать
     print("=== Signing ===")
     r = subprocess.run(
         [
@@ -140,15 +132,16 @@ def main():
         print("stderr:", r.stderr)
         sys.exit(1)
 
-    # Проверить entitlements
     check = subprocess.run(
         ["codesign", "-d", "--entitlements", ":-", str(APP_BUNDLE)],
         capture_output=True, text=True,
     )
-    if "calendars" not in check.stdout and "calendars" not in check.stderr:
-        print("WARNING: entitlements not found")
-    else:
-        print("✅ Entitlements OK")
+    combined = (check.stdout or "") + (check.stderr or "")
+    if "personal-information.calendars.full" not in combined:
+        print("ERROR: full calendar entitlement missing in signed bundle")
+        print(combined)
+        sys.exit(1)
+    print("✅ Entitlements OK (full calendar access present)")
 
     print(f"✅ Signed: {APP_BUNDLE}")
 

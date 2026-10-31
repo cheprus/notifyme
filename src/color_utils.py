@@ -1,9 +1,10 @@
 # src/color_utils.py
 from datetime import datetime, timedelta
+
 from AppKit import NSColor
 
 from config import CONFIG
-from time_utils import to_display_tz, format_time_delta_compact
+from time_utils import format_time_delta_compact, to_display_tz
 
 
 def interpolate_color(c1, c2, t):

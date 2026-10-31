@@ -1,33 +1,54 @@
 # src/add_event_window.py
-import sys
-import re
-import objc
-import subprocess
 import datetime
+import re
+import subprocess
 from datetime import datetime as dt
-from Foundation import NSDate, NSObject, NSApplication
-from AppKit import (
-    NSPanel, NSTextField, NSButton, NSFont, NSMakeRect,
-    NSBezelStyleRounded, NSWindowStyleMaskTitled, NSBackingStoreBuffered,
-    NSPasteboard, NSDatePicker, NSDatePickerStyleTextFieldAndStepper,
-    NSDatePickerModeSingle, NSDatePickerElementFlagYearMonthDay,
-    NSDatePickerElementFlagHourMinute,
-    NSApplicationActivationPolicyRegular,
-    NSApplicationActivationPolicyAccessory,
-    NSScrollView, NSTextView, NSBezelBorder, NSAlert,
-    NSColor, NSStatusWindowLevel, NSScreenSaverWindowLevel,
-    NSVisualEffectView, NSVisualEffectMaterialHUDWindow,
-    NSVisualEffectBlendingModeBehindWindow, NSVisualEffectStateActive,
-    NSViewWidthSizable, NSViewHeightSizable
-)
-from calendar_service import create_event_via_applescript, classify_url, _log
+from types import ModuleType
+from typing import Any
 
+import objc
+from AppKit import (
+    NSAlert,
+    NSApplicationActivationPolicyRegular,
+    NSBackingStoreBuffered,
+    NSBezelBorder,
+    NSBezelStyleRounded,
+    NSButton,
+    NSColor,
+    NSDatePicker,
+    NSDatePickerElementFlagHourMinute,
+    NSDatePickerElementFlagYearMonthDay,
+    NSDatePickerModeSingle,
+    NSDatePickerStyleTextFieldAndStepper,
+    NSFont,
+    NSMakeRect,
+    NSPanel,
+    NSPasteboard,
+    NSScreenSaverWindowLevel,
+    NSScrollView,
+    NSTextField,
+    NSTextView,
+    NSViewHeightSizable,
+    NSViewWidthSizable,
+    NSVisualEffectBlendingModeBehindWindow,
+    NSVisualEffectMaterialHUDWindow,
+    NSVisualEffectStateActive,
+    NSVisualEffectView,
+    NSWindowStyleMaskTitled,
+)
+from Foundation import NSApplication, NSDate, NSObject
+
+from calendar_service import _log, classify_url, create_event_via_applescript
+
+# audio_output может быть ModuleType или None
+audio_output: ModuleType | None
 try:
     import audio_output  # noqa: F401
 except ImportError:
     audio_output = None
 
-_RETAINED_HANDLERS = {}
+# Ключ — id(panel)
+_RETAINED_HANDLERS: dict[int, Any] = {}
 
 
 class FormHandler(NSObject):
@@ -52,10 +73,12 @@ def parse_clipboard(text):
     else:
         title_text = ""
         for line in lines:
-            if not re.match(r'^(When|Location|Organizer|Description|Attendees):', line, re.IGNORECASE):
-                if not re.match(r'^[A-Z][a-z]+, [A-Z][a-z]+ \d+, \d{4}', line):
-                    title_text = line
-                    break
+            if (
+                not re.match(r'^(When|Location|Organizer|Description|Attendees):', line, re.IGNORECASE)
+                and not re.match(r'^[A-Z][a-z]+, [A-Z][a-z]+ \d+, \d{4}', line)
+            ):
+                title_text = line
+                break
 
     if title_text.startswith("http"):
         result["title"] = title_text

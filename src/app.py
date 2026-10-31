@@ -1,28 +1,23 @@
 # src/app.py
-import sys
-import os
+import contextlib
 import fcntl
-import objc
-
-import audio_output  # noqa: F401
+import os
+import sys
 
 from AppKit import NSApplication
-from Foundation import NSTimer
+from Foundation import NSObject, NSTimer
+
+import audio_output  # noqa: F401
 from calendar_service import request_calendar_access
 
 
-class AppDelegate(objc.lookUpClass('NSObject')):
+class AppDelegate(NSObject):
     def applicationDidFinishLaunching_(self, notification):
         app = NSApplication.sharedApplication()
 
         app.setActivationPolicy_(0)  # Regular
-        try:
+        with contextlib.suppress(Exception):
             app.activateIgnoringOtherApps_(True)
-        except Exception:
-            try:
-                app.activate()
-            except Exception:
-                pass
 
         self.store = request_calendar_access()
         self.status_bar = None
@@ -35,41 +30,27 @@ class AppDelegate(objc.lookUpClass('NSObject')):
 
     def switchToAccessory_(self, timer):
         print("[DEBUG] Switching to Accessory policy", flush=True)
-        try:
-            NSApplication.sharedApplication().setActivationPolicy_(1)
-            print("[DEBUG] policy set", flush=True)
+        NSApplication.sharedApplication().setActivationPolicy_(1)  # Accessory
 
-            from status_bar import StatusBarController
-            print("[DEBUG] status_bar imported", flush=True)
+        from status_bar import StatusBarController
+        self.status_bar = StatusBarController.alloc().initWithApp_(self)
+        self.status_bar.update()
 
-            self.status_bar = StatusBarController.alloc().initWithApp_(self)
-            print(f"[DEBUG] status_bar created: {self.status_bar}", flush=True)
-
-            self.status_bar.update()
-            print("[DEBUG] update done", flush=True)
-
-            self.ui_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-                5.0, self, "tickUI:", None, True
-            )
-            self.notify_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-                5.0, self.status_bar, "checkNotifications:", None, True
-            )
-            print("[DEBUG] timers set", flush=True)
-        except Exception as e:
-            import traceback
-            print(f"[DEBUG] switchToAccessory_ FAILED: {e}", flush=True)
-            traceback.print_exc()
+        self.ui_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            5.0, self, "tickUI:", None, True
+        )
+        self.notify_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            5.0, self.status_bar, "checkNotifications:", None, True
+        )
 
     def tickUI_(self, timer):
         if self.status_bar is not None:
             self.status_bar.update()
 
     def applicationWillTerminate_(self, notification):
-        try:
-            from dialogs import close_all_alarms
+        with contextlib.suppress(Exception):
+            from alarm_utils import close_all_alarms
             close_all_alarms()
-        except Exception as e:
-            print(f"[DEBUG] close_all_alarms on terminate failed: {e}", flush=True)
 
 
 def main():
@@ -82,10 +63,10 @@ def main():
         sys.exit(0)
 
     lock_file_path = "/tmp/notifyme.lock"
-    lock_file = open(lock_file_path, "w")
+    lock_file = open(lock_file_path, "w")  # noqa: SIM115
     try:
         fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except IOError:
+    except OSError:  # mypy/UP024: IOError — алиас OSError
         print("NotifyMe is already running.")
         sys.exit(0)
 
@@ -97,10 +78,8 @@ def main():
     finally:
         fcntl.lockf(lock_file, fcntl.LOCK_UN)
         lock_file.close()
-        try:
+        with contextlib.suppress(Exception):
             os.remove(lock_file_path)
-        except:
-            pass
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ dependencies = [
     "pyobjc-framework-EventKit",
     "pyobjc-framework-ApplicationServices",
     "pyobjc-framework-Quartz",
+    "pyobjc-framework-AVFoundation",
     "dateparser",
 ]
 
@@ -38,6 +39,7 @@ py-modules = [
     "status_bar",
     "menu_item_view",
     "dialogs",
+    "alarm_utils",
     "event_card",
     "add_event_window",
     "calendar_service",
@@ -48,6 +50,8 @@ py-modules = [
     "clipboard_utils",
     "audio_output",
     "hotkeys",
+    "menu_builders",
+    "menu_alarm",
     "config",
     "state_manager",
 ]
@@ -55,11 +59,35 @@ py-modules = [
 [tool.ruff]
 line-length = 120
 target-version = "py313"
-src = ["src"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    "N802",
+    "N803",
+    "N815",
+    "N816",
+    "SIM105",
+    "SIM108",
+    "SIM103",
+    "E701",
+    "E741",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/status_bar.py" = ["N802", "N803", "N815"]
+"src/dialogs.py" = ["N802", "N803", "N815"]
+"src/alarm_utils.py" = ["N802", "N803", "N815"]
+"src/menu_builders.py" = ["N802", "N803"]
+"src/menu_alarm.py" = ["N802", "N803"]
+"src/event_card.py" = ["N802", "N803"]
+"src/menu_item_view.py" = ["N802", "N803"]
+"src/add_event_window.py" = ["N802", "N803"]
+"src/hotkeys.py" = ["N802", "N803"]
+"src/calendar_icon.py" = ["N802"]
+"src/audio_output.py" = ["N802", "N816"]
 
 [tool.mypy]
 python_version = "3.13"
