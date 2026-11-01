@@ -1,6 +1,7 @@
 # src/menu_alarm.py
 from AppKit import NSMenu, NSMenuItem
 
+import strings as S
 from config import (
     AUTO_CLOSE_PRESETS,
     CONFIG,
@@ -23,20 +24,22 @@ def snooze_presets(notify_before):
         return [15, 30, 45, 60, 120]
 
 
+def _preset_label_minutes(mins):
+    if mins == 0:
+        return S.PRESET_AT_START
+    if mins % 60 == 0:
+        return S.PRESET_HOUR.format(n=mins // 60)
+    return S.PRESET_MIN.format(n=mins)
+
+
 def build_notify_before_submenu(controller):
     sub = NSMenu.alloc().init()
     current_min = CONFIG.get("notify_minutes_before", 5)
 
     for mins in NOTIFY_BEFORE_PRESETS:
-        if mins == 0:
-            label = "At start"
-        elif mins % 60 == 0:
-            label = f"{mins // 60}h"
-        else:
-            label = f"{mins} min"
-        prefix = "✓ " if mins == current_min else "   "
+        prefix = S.SETTINGS_CHECK if mins == current_min else S.SETTINGS_UNCHECK
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"{prefix}{label}", "handleNotifyTime:", ""
+            f"{prefix}{_preset_label_minutes(mins)}", "handleNotifyTime:", ""
         )
         it.setTag_(mins)
         it.setTarget_(controller)
@@ -44,7 +47,7 @@ def build_notify_before_submenu(controller):
 
     if current_min not in NOTIFY_BEFORE_PRESETS:
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"✓ {current_min} min (custom)", "handleNotifyTime:", ""
+            f"{S.SETTINGS_CHECK}{S.PRESET_MIN_CUSTOM.format(n=current_min)}", "handleNotifyTime:", ""
         )
         it.setTag_(current_min)
         it.setTarget_(controller)
@@ -52,7 +55,7 @@ def build_notify_before_submenu(controller):
 
     sub.addItem_(NSMenuItem.separatorItem())
     it_custom = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-        "Custom…", "handleNotifyCustom:", ""
+        S.PRESET_CUSTOM_ELLIPSIS, "handleNotifyCustom:", ""
     )
     it_custom.setTarget_(controller)
     sub.addItem_(it_custom)
@@ -65,13 +68,9 @@ def build_notify_after_submenu(controller):
     current_min = CONFIG.get("notify_minutes_after", 2)
 
     for mins in NOTIFY_AFTER_PRESETS:
-        if mins == 0:
-            label = "At start"
-        else:
-            label = f"{mins} min"
-        prefix = "✓ " if mins == current_min else "   "
+        prefix = S.SETTINGS_CHECK if mins == current_min else S.SETTINGS_UNCHECK
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"{prefix}{label}", "handleNotifyAfter:", ""
+            f"{prefix}{_preset_label_minutes(mins)}", "handleNotifyAfter:", ""
         )
         it.setTag_(mins)
         it.setTarget_(controller)
@@ -79,7 +78,7 @@ def build_notify_after_submenu(controller):
 
     if current_min not in NOTIFY_AFTER_PRESETS:
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"✓ {current_min} min (custom)", "handleNotifyAfter:", ""
+            f"{S.SETTINGS_CHECK}{S.PRESET_MIN_CUSTOM.format(n=current_min)}", "handleNotifyAfter:", ""
         )
         it.setTag_(current_min)
         it.setTarget_(controller)
@@ -93,9 +92,9 @@ def build_auto_close_submenu(controller):
     current = CONFIG.get("auto_close_minutes", 15)
 
     for mins in AUTO_CLOSE_PRESETS:
-        prefix = "✓ " if mins == current else "   "
+        prefix = S.SETTINGS_CHECK if mins == current else S.SETTINGS_UNCHECK
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"{prefix}{mins} min", "handleAutoClose:", ""
+            f"{prefix}{S.PRESET_MIN.format(n=mins)}", "handleAutoClose:", ""
         )
         it.setTag_(mins)
         it.setTarget_(controller)
@@ -103,7 +102,7 @@ def build_auto_close_submenu(controller):
 
     if current not in AUTO_CLOSE_PRESETS:
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"✓ {current} min (custom)", "handleAutoClose:", ""
+            f"{S.SETTINGS_CHECK}{S.PRESET_MIN_CUSTOM.format(n=current)}", "handleAutoClose:", ""
         )
         it.setTag_(current)
         it.setTarget_(controller)
@@ -119,13 +118,13 @@ def build_pulse_submenu(controller):
     off_secs = CONFIG.get("alarm_sound_off_seconds", 60)
 
     on_label = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-        f"Sound: {on_secs} sec", None, ""
+        S.PULSE_ON_LABEL.format(n=on_secs), None, ""
     )
     on_label.setEnabled_(False)
     sub.addItem_(on_label)
 
     for secs in [5, 10, 12, 15, 20, 30]:
-        prefix = "✓ " if secs == on_secs else "   "
+        prefix = S.SETTINGS_CHECK if secs == on_secs else S.SETTINGS_UNCHECK
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"{prefix}{secs} sec", "handlePulseOn:", ""
         )
@@ -136,13 +135,13 @@ def build_pulse_submenu(controller):
     sub.addItem_(NSMenuItem.separatorItem())
 
     off_label = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-        f"Silence: {off_secs} sec", None, ""
+        S.PULSE_OFF_LABEL.format(n=off_secs), None, ""
     )
     off_label.setEnabled_(False)
     sub.addItem_(off_label)
 
     for secs in [15, 30, 60, 120, 300]:
-        prefix = "✓ " if secs == off_secs else "   "
+        prefix = S.SETTINGS_CHECK if secs == off_secs else S.SETTINGS_UNCHECK
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"{prefix}{secs} sec", "handlePulseOff:", ""
         )
@@ -168,9 +167,9 @@ def build_snooze_submenu(controller):
         current = auto_close
 
     for mins in presets:
-        prefix = "✓ " if mins == current else "   "
+        prefix = S.SETTINGS_CHECK if mins == current else S.SETTINGS_UNCHECK
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"{prefix}{mins} min", "handleSnoozeTime:", ""
+            f"{prefix}{S.PRESET_MIN.format(n=mins)}", "handleSnoozeTime:", ""
         )
         it.setTag_(mins)
         it.setTarget_(controller)
@@ -178,7 +177,7 @@ def build_snooze_submenu(controller):
 
     if current not in presets:
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"✓ {current} min (custom)", "handleSnoozeTime:", ""
+            f"{S.SETTINGS_CHECK}{S.PRESET_MIN_CUSTOM.format(n=current)}", "handleSnoozeTime:", ""
         )
         it.setTag_(current)
         it.setTarget_(controller)

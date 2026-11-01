@@ -34,6 +34,7 @@ notifyme = "app:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+packages = ["config"]
 py-modules = [
     "app",
     "status_bar",
@@ -50,10 +51,10 @@ py-modules = [
     "clipboard_utils",
     "audio_output",
     "hotkeys",
-    "menu_builders",
     "menu_alarm",
-    "config",
     "state_manager",
+    "classify",
+    "strings",
 ]
 
 [tool.ruff]
@@ -67,6 +68,7 @@ ignore = [
     "E501",
     "N802",
     "N803",
+    "N812",
     "N815",
     "N816",
     "SIM105",

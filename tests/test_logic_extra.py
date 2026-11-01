@@ -154,11 +154,11 @@ def test_to_copy_tz():
 
 
 # ============================================================
-# calendar_service: _custom_patterns
+# classify: _custom_patterns
 # ============================================================
 
 def test_custom_patterns():
-    from calendar_service import _custom_patterns
+    from classify import _custom_patterns
     from config import CONFIG
 
     old = CONFIG.get("custom_tracker_domains")

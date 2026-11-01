@@ -34,6 +34,7 @@ from AppKit import (
 )
 from Foundation import NSApplication, NSNotificationCenter, NSObject
 
+import strings as S
 from ui_utils import (
     format_event_datetime,
     format_event_datetime_for_copy,
@@ -137,7 +138,7 @@ def show_event_card(event):
             pass
 
     now = datetime.now()
-    title = (event.get("title") or "Untitled").strip()
+    title = (event.get("title") or S.MENU_ROW_UNTITLED).strip()
     start = event.get("start")
     end = event.get("end")
     location = event.get("location") or ""
@@ -167,7 +168,8 @@ def show_event_card(event):
         NSBackingStoreBuffered,
         False
     )
-    panel.setTitle_(f"Event — {calendar}" if calendar else "Event")
+    panel_title = S.CARD_TITLE_PREFIX.format(calendar=calendar) if calendar else S.CARD_TITLE_FALLBACK
+    panel.setTitle_(panel_title)
     panel.setLevel_(NSScreenSaverWindowLevel)
     panel.center()
     panel.setReleasedWhenClosed_(False)
@@ -200,7 +202,7 @@ def show_event_card(event):
 
     def add_calendar_row(cal_name):
         nonlocal y
-        lbl = _label("Calendar", NSMakeRect(padding, y - 18, label_w, 18), secondary=True, size=12)
+        lbl = _label(S.CARD_LBL_CALENDAR, NSMakeRect(padding, y - 18, label_w, 18), secondary=True, size=12)
         content.addSubview_(lbl)
         dot = NSView.alloc().initWithFrame_(NSMakeRect(field_x, y - 16, 10, 10))
         dot.setWantsLayer_(True)
@@ -212,21 +214,21 @@ def show_event_card(event):
         content.addSubview_(val)
         y -= row_h
 
-    add_row("Title", title, secondary=False, bold=True)
+    add_row(S.CARD_LBL_TITLE, title, secondary=False, bold=True)
     if calendar:
         add_calendar_row(calendar)
     if start:
-        add_row("Start", format_event_datetime(start, now), secondary=False)
+        add_row(S.CARD_LBL_START, format_event_datetime(start, now), secondary=False)
     if end:
-        add_row("End", to_display_tz(end).strftime("%H:%M"), secondary=False)
+        add_row(S.CARD_LBL_END, to_display_tz(end).strftime("%H:%M"), secondary=False)
     if location:
-        add_row("Location", location, secondary=True)
+        add_row(S.CARD_LBL_LOCATION, location, secondary=True)
     if url:
-        add_row("URL", url, secondary=True)
+        add_row(S.CARD_LBL_URL, url, secondary=True)
 
     if notes:
         y -= 10
-        lbl = _label("Notes", NSMakeRect(padding, y - 18, label_w, 18), secondary=True, size=12)
+        lbl = _label(S.CARD_LBL_NOTES, NSMakeRect(padding, y - 18, label_w, 18), secondary=True, size=12)
         content.addSubview_(lbl)
         scroll_view = NSScrollView.alloc().initWithFrame_(
             NSMakeRect(field_x, y - notes_h, field_w, notes_h)
@@ -282,7 +284,7 @@ def show_event_card(event):
     close_w = 100
     right_x -= close_w
     h_close = CardHandler.alloc().initWithAction_(close_action)
-    btn_close = _make_button("Закрыть", NSMakeRect(right_x, btn_y, close_w, btn_h), h_close, bold=True)
+    btn_close = _make_button(S.CARD_BTN_CLOSE, NSMakeRect(right_x, btn_y, close_w, btn_h), h_close, bold=True)
     content.addSubview_(btn_close)
     handlers["close"] = h_close
     right_x -= gap
@@ -293,18 +295,18 @@ def show_event_card(event):
     def copy_action():
         pb = NSPasteboard.generalPasteboard()
         pb.clearContents()
-        text = f"📅 Event: {title}\n"
+        text = S.COPY_EVENT_HEADER.format(title=title) + "\n"
         if start:
             text += f"{format_event_datetime_for_copy(start, now)}\n"
         if url:
-            text += f"🔗 {url}\n"
+            text += S.COPY_LINK.format(url=url) + "\n"
         if location:
-            text += f"📍 {location}\n"
+            text += S.COPY_LOCATION.format(location=location) + "\n"
         pb.setString_forType_(text, "public.utf8-plain-text")
         close_action()
 
     h_copy = CardHandler.alloc().initWithAction_(copy_action)
-    btn_copy = _make_button("Копировать", NSMakeRect(right_x, btn_y, copy_w, btn_h), h_copy)
+    btn_copy = _make_button(S.CARD_BTN_COPY, NSMakeRect(right_x, btn_y, copy_w, btn_h), h_copy)
     content.addSubview_(btn_copy)
     handlers["copy"] = h_copy
     right_x -= gap
@@ -316,7 +318,7 @@ def show_event_card(event):
             _open_url(loc)
             close_action()
         h_loc = CardHandler.alloc().initWithAction_(open_location_action)
-        btn_loc = _make_button("Открыть встречу", NSMakeRect(right_x, btn_y, open_w, btn_h), h_loc, bold=True)
+        btn_loc = _make_button(S.CARD_BTN_OPEN_MEETING, NSMakeRect(right_x, btn_y, open_w, btn_h), h_loc, bold=True)
         content.addSubview_(btn_loc)
         handlers["open_location"] = h_loc
     elif url:
@@ -326,7 +328,7 @@ def show_event_card(event):
             _open_url(u)
             close_action()
         h_url = CardHandler.alloc().initWithAction_(open_url_action)
-        btn_url = _make_button("Открыть трекер", NSMakeRect(right_x, btn_y, open_w, btn_h), h_url, bold=True)
+        btn_url = _make_button(S.CARD_BTN_OPEN_TRACKER, NSMakeRect(right_x, btn_y, open_w, btn_h), h_url, bold=True)
         content.addSubview_(btn_url)
         handlers["open_url"] = h_url
 

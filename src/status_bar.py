@@ -1,5 +1,4 @@
 # src/status_bar.py
-import contextlib
 import subprocess
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -7,32 +6,28 @@ from typing import Any
 
 import objc
 from AppKit import (
-    NSAlert,
-    NSApplication,
     NSImage,
     NSMakeRect,
     NSMenu,
     NSMenuItem,
     NSPasteboard,
     NSStatusBar,
-    NSStatusWindowLevel,
-    NSTextField,
     NSVariableStatusItemLength,
 )
 from Foundation import NSObject
 
 import audio_output
-from alarm_utils import _resolve_sound_path_for, close_all_alarms
+import strings as S
+from alarm_utils import _resolve_sound_path_for
 from calendar_icon import generate_hourglass_icon
 from calendar_service import get_upcoming_events, get_week_events
 from config import CONFIG, save_config
 from dialogs import show_alarm
-from menu_builders import build_settings_menu
 from menu_item_view import MenuItemView
+from settings import show_settings
 from state_manager import load_state, save_state
 from ui_utils import format_event_for_clipboard, get_status_color
 
-# install_hotkey может быть None, если модуль hotkeys недоступен
 install_hotkey: Callable[[Any], Any] | None
 try:
     from hotkeys import install_hotkey, is_accessibility_granted
@@ -47,7 +42,6 @@ except ImportError as e:
     _HAS_HOTKEYS = False
 
 
-# Удерживать preview-handle, пока играет, иначе AVAudioEngine соберётся GC.
 _PREVIEW_HANDLE: list[Any] = []
 
 
@@ -121,13 +115,12 @@ class StatusBarController(NSObject):
         print(f"[DEBUG] Copied {len(selected_events)} events", flush=True)
 
     def playSoundPreview_(self, sender):
-        raw = sender.title().replace("✓ ", "").replace("   ", "").strip()
+        raw = sender.title().replace(S.SETTINGS_CHECK, "").replace(S.SETTINGS_UNCHECK, "").strip()
         path = _resolve_sound_path_for(raw)
         if not path:
             print(f"[DEBUG] Sound not found: {raw}", flush=True)
             return
 
-        # Остановить предыдущий preview, если ещё играет
         while _PREVIEW_HANDLE:
             audio_output.stop_playing(_PREVIEW_HANDLE.pop())
 
@@ -137,112 +130,46 @@ class StatusBarController(NSObject):
             _PREVIEW_HANDLE.append(handle)
             print(f"[DEBUG] Preview on {device!r}: {raw}", flush=True)
         else:
-            # Фолбэк: системный дефолт
             subprocess.Popen(["afplay", path])
             print(f"[DEBUG] Preview fallback (system default): {raw}", flush=True)
 
         CONFIG["sound_file"] = raw
         save_config(CONFIG)
 
-    def handleNotifyTime_(self, sender):
-        tag = sender.tag()
-        CONFIG["notify_minutes_before"] = tag
-        save_config(CONFIG)
-        print(f"[DEBUG] Notify Before set to {tag} min", flush=True)
+    def openSettings_(self, sender=None):
+        try:
+            show_settings(store=self.app.store, on_change=self._on_settings_changed)
+            print("[DEBUG] Settings window opened", flush=True)
+        except Exception as e:
+            import traceback
+            print(f"[DEBUG] openSettings_ failed: {e}", flush=True)
+            traceback.print_exc()
+
+    def _on_settings_changed(self):
+        try:
+            self._reinstall_hotkey_if_needed()
+        except Exception as e:
+            print(f"[DEBUG] reinstall hotkey failed: {e}", flush=True)
         self.update()
 
-    def handleNotifyAfter_(self, sender):
-        tag = sender.tag()
-        CONFIG["notify_minutes_after"] = tag
-        save_config(CONFIG)
-        print(f"[DEBUG] Notify After set to {tag} min", flush=True)
-        self.update()
-
-    def handleSnoozeTime_(self, sender):
-        tag = sender.tag()
-        CONFIG["snooze_minutes"] = tag
-        save_config(CONFIG)
-        print(f"[DEBUG] Snooze set to {tag} min", flush=True)
-        self.update()
-
-    def handleNotifyCustom_(self, sender):
-        alert = NSAlert.alloc().init()
-        alert.setMessageText_("Notify Before")
-        alert.setInformativeText_("Minutes before the event (0–1440):")
-        alert.addButtonWithTitle_("OK")
-        alert.addButtonWithTitle_("Cancel")
-
-        field = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 0, 200, 24))
-        field.setStringValue_(str(CONFIG.get("notify_minutes_before", 5)))
-        alert.setAccessoryView_(field)
-        alert.window().setInitialFirstResponder_(field)
-
-        alert.window().setLevel_(NSStatusWindowLevel)
-        with contextlib.suppress(Exception):
-            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        alert.window().makeKeyAndOrderFront_(None)
-
-        if alert.runModal() == 1000:
+    def _reinstall_hotkey_if_needed(self):
+        """Переустановить hotkey. Звать после Settings/Import/Reset."""
+        if not _HAS_HOTKEYS or install_hotkey is None:
+            return
+        if not is_accessibility_granted():
+            return
+        if self._hotkey_monitor is not None:
             try:
-                val = int(float(field.stringValue().strip()))
-                val = max(0, min(val, 24 * 60))
-                CONFIG["notify_minutes_before"] = val
-                save_config(CONFIG)
-                print(f"[DEBUG] Notify Before set to {val} min (custom)", flush=True)
-                self.update()
-            except ValueError:
-                print(f"[DEBUG] Invalid custom value: {field.stringValue()!r}", flush=True)
-
-    def handleAutoClose_(self, sender):
-        tag = sender.tag()
-        CONFIG["auto_close_minutes"] = tag
-        save_config(CONFIG)
-        print(f"[DEBUG] Auto-close set to {tag} min", flush=True)
-        self.update()
-
-    def handlePulseOn_(self, sender):
-        tag = sender.tag()
-        CONFIG["alarm_sound_on_seconds"] = tag
-        save_config(CONFIG)
-        print(f"[DEBUG] Pulse ON set to {tag} sec", flush=True)
-        self.update()
-
-    def handlePulseOff_(self, sender):
-        tag = sender.tag()
-        CONFIG["alarm_sound_off_seconds"] = tag
-        save_config(CONFIG)
-        print(f"[DEBUG] Pulse OFF set to {tag} sec", flush=True)
-        self.update()
-
-    def handleDisplayTimezone_(self, sender):
-        tz = sender.representedObject()
-        if tz is not None:
-            CONFIG["display_timezone"] = str(tz)
-            save_config(CONFIG)
-            print(f"[DEBUG] Display timezone set to {tz}", flush=True)
-            self.update()
-
-    def handleCopyTimezone_(self, sender):
-        tz = sender.representedObject()
-        if tz is not None:
-            CONFIG["copy_timezone"] = str(tz)
-            save_config(CONFIG)
-            print(f"[DEBUG] Copy timezone set to {tz}", flush=True)
-
-    def handleCalendar_(self, sender):
-        cal_name = sender.representedObject()
-        if cal_name is None:
-            cal_name = ""
-        CONFIG["target_calendar_name"] = str(cal_name)
-        save_config(CONFIG)
-        print(f"[DEBUG] Target calendar set to {cal_name!r}", flush=True)
-
-    def handleAudioOutput_(self, sender):
-        dev = sender.representedObject()
-        if dev is not None:
-            CONFIG["sound_output_device"] = str(dev)
-            save_config(CONFIG)
-            print(f"[DEBUG] Audio output set to {dev}", flush=True)
+                from hotkeys import uninstall_hotkey
+                uninstall_hotkey()
+            except Exception:
+                pass
+            self._hotkey_monitor = None
+        try:
+            self._hotkey_monitor = install_hotkey(self.handleHotkey_)
+            print("[DEBUG] hotkey reinstalled", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] hotkey reinstall failed: {e}", flush=True)
 
     def openAccessibilitySettings_(self, sender):
         try:
@@ -250,7 +177,6 @@ class StatusBarController(NSObject):
                 "open",
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             ])
-            print("[DEBUG] Opened Accessibility settings", flush=True)
         except Exception as e:
             print(f"[DEBUG] open Accessibility settings failed: {e}", flush=True)
 
@@ -259,7 +185,6 @@ class StatusBarController(NSObject):
         if current is not None and current > datetime.now():
             CONFIG["dnd_until"] = None
             save_config(CONFIG)
-            print("[DEBUG] DND disabled", flush=True)
             self.update()
             return
 
@@ -267,45 +192,22 @@ class StatusBarController(NSObject):
         events = get_upcoming_events(self.app.store)
         ongoing = [ev for ev in events if ev["start"] <= now <= ev["end"]]
         if not ongoing:
-            print("[DEBUG] DND: no ongoing event", flush=True)
             return
         latest_end = max(ev["end"] for ev in ongoing)
         CONFIG["dnd_until"] = latest_end.isoformat()
         save_config(CONFIG)
-        print(f"[DEBUG] DND until {latest_end}", flush=True)
         self.update()
 
-    def clearHistory_(self, sender):
+    def confirmQuit_(self, sender=None):
+        """Прямой Quit без NSAlert — menu-bar app не должен «зависать» на подтверждении."""
+        print("[DEBUG] confirmQuit_ called", flush=True)
         try:
+            from alarm_utils import close_all_alarms
             close_all_alarms()
-        except Exception as e:
-            print(f"[DEBUG] close_all_alarms failed: {e}", flush=True)
-        self.notified_ids.clear()
-        save_state(self.notified_ids)
-        self.update()
-
-    def toggleIncludeNotes_(self, sender):
-        new_val = not CONFIG.get("include_notes_in_copy", False)
-        CONFIG["include_notes_in_copy"] = new_val
-        save_config(CONFIG)
-        print(f"[DEBUG] include_notes_in_copy: {new_val}", flush=True)
-        self.update()
-
-    def confirmQuit_(self, sender):
-        alert = NSAlert.alloc().init()
-        alert.setMessageText_("Quit NotifyMe?")
-        alert.setInformativeText_("Alarms will stop working until you launch the app again.")
-        alert.addButtonWithTitle_("Quit")
-        alert.addButtonWithTitle_("Cancel")
-        alert.setAlertStyle_(1)
-
-        alert.window().setLevel_(NSStatusWindowLevel)
-        with contextlib.suppress(Exception):
-            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        alert.window().makeKeyAndOrderFront_(None)
-
-        if alert.runModal() == 1000:
-            NSApplication.sharedApplication().terminate_(None)
+        except Exception:
+            pass
+        from AppKit import NSApplication
+        NSApplication.sharedApplication().terminate_(None)
 
     def addToCalendar_(self, sender):
         try:
@@ -359,20 +261,20 @@ class StatusBarController(NSObject):
                 item.setView_(view)
                 self.menu.addItem_(item)
 
-            add_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("➕ New event", "addToCalendar:", "")
+            add_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_NEW_EVENT, "addToCalendar:", "")
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
 
-            self.menu.addItem_(build_settings_menu(
-                self,
-                is_accessibility_granted=is_accessibility_granted if _HAS_HOTKEYS else None,
-                has_hotkeys=_HAS_HOTKEYS,
-            ))
+            settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                S.SETTINGS_TITLE, "openSettings:", ","
+            )
+            settings_item.setTarget_(self)
+            self.menu.addItem_(settings_item)
 
             dnd = _parse_dnd_until()
             if dnd is not None and dnd > now:
                 dnd_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                    f"🔕 DND until {dnd.strftime('%H:%M')}", "toggleDND:", ""
+                    S.MENU_DND_UNTIL.format(time=dnd.strftime("%H:%M")), "toggleDND:", ""
                 )
                 dnd_item.setTarget_(self)
                 self.menu.addItem_(dnd_item)
@@ -380,16 +282,16 @@ class StatusBarController(NSObject):
                 ongoing = [ev for ev in events if ev["start"] <= now <= ev["end"]]
                 if ongoing:
                     dnd_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                        "🔕 DND until current event ends", "toggleDND:", ""
+                        S.MENU_DND_UNTIL_END, "toggleDND:", ""
                     )
                     dnd_item.setTarget_(self)
                     self.menu.addItem_(dnd_item)
 
-            open_cal = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("📅 Open Calendar", "openCalendar:", "")
+            open_cal = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_OPEN_CALENDAR, "openCalendar:", "")
             open_cal.setTarget_(self)
             self.menu.addItem_(open_cal)
 
-            quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit", "confirmQuit:", "q")
+            quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_QUIT, "confirmQuit:", "q")
             quit_item.setTarget_(self)
             self.menu.addItem_(quit_item)
 
@@ -400,24 +302,24 @@ class StatusBarController(NSObject):
             finished = [ev for ev in events if ev["end"] < now]
 
             if ongoing:
-                add_section("— Ongoing —")
+                add_section(S.MENU_SECTION_ONGOING)
                 for ev in ongoing:
                     add_event_item(ev)
             if future:
                 if ongoing:
                     self.menu.addItem_(NSMenuItem.separatorItem())
-                add_section("— Upcoming —")
+                add_section(S.MENU_SECTION_UPCOMING)
                 for ev in future:
                     add_event_item(ev)
             if finished:
                 if ongoing or future:
                     self.menu.addItem_(NSMenuItem.separatorItem())
-                add_section("— Finished —")
+                add_section(S.MENU_SECTION_FINISHED)
                 for ev in finished:
                     add_event_item(ev)
 
             if not events:
-                item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("No events today", None, "")
+                item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_NO_EVENTS_TODAY, None, "")
                 item.setEnabled_(False)
                 self.menu.addItem_(item)
 
@@ -426,19 +328,19 @@ class StatusBarController(NSObject):
             tomorrow_events = [ev for ev in week_events if tomorrow_start <= ev["start"] < day_after_tomorrow]
             if tomorrow_events:
                 self.menu.addItem_(NSMenuItem.separatorItem())
-                add_section("— Tomorrow —")
+                add_section(S.MENU_SECTION_TOMORROW)
                 for ev in tomorrow_events:
                     add_event_item(ev, show_date=True)
 
             next_week_events = [ev for ev in week_events if ev["start"] >= day_after_tomorrow]
             if next_week_events:
                 self.menu.addItem_(NSMenuItem.separatorItem())
-                add_section("— Next 7 Days —")
+                add_section(S.MENU_SECTION_NEXT_7_DAYS)
                 for ev in next_week_events[:30]:
                     add_event_item(ev, show_date=True)
                 if len(next_week_events) > 30:
                     item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                        f"... and {len(next_week_events) - 30} more", None, ""
+                        S.MENU_MORE_EVENTS.format(n=len(next_week_events) - 30), None, ""
                     )
                     item.setEnabled_(False)
                     self.menu.addItem_(item)
@@ -471,7 +373,6 @@ class StatusBarController(NSObject):
                     to_notify.append(ev)
                     self.notified_ids.add(ev["id"])
             if to_notify:
-                print(f"[DEBUG] Notifying {len(to_notify)} events", flush=True)
                 show_alarm(to_notify)
                 save_state(self.notified_ids)
         except Exception as e:

@@ -24,7 +24,6 @@ except ImportError:
     CGPreflightPostEventAccess = None
     _HAS_CG = False
 
-# _RETAINED хранит HotkeyMonitor, чтобы NSEvent его не собрал GC
 _RETAINED: dict[str, Any] = {}
 
 
@@ -74,3 +73,14 @@ def install_hotkey(callback):
     except Exception as e:
         print(f"[DEBUG] install_hotkey failed: {e}", flush=True)
         return None
+
+
+def uninstall_hotkey():
+    monitor = _RETAINED.pop("monitor", None)
+    if monitor is None:
+        return
+    try:
+        NSEvent.removeMonitor_(monitor)
+        print("[DEBUG] Global hotkey removed", flush=True)
+    except Exception as e:
+        print(f"[DEBUG] uninstall_hotkey failed: {e}", flush=True)

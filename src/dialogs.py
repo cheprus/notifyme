@@ -24,6 +24,7 @@ from AppKit import (
 )
 from Foundation import NSTimer
 
+import strings as S
 from alarm_utils import (
     _RETAINED_HANDLERS,
     _RETAINED_PANELS,
@@ -95,7 +96,7 @@ def show_alarm(events_data):
     first_location = None
 
     for ev in events_data:
-        title_text = (ev.get("title") or "Untitled").strip()
+        title_text = (ev.get("title") or S.MENU_ROW_UNTITLED).strip()
 
         title_field = NSTextField.alloc().initWithFrame_(
             NSMakeRect(padding, y - 22, width - padding * 2, 22)
@@ -142,7 +143,7 @@ def show_alarm(events_data):
     def mute_action():
         _stop_sound(state)
         try:
-            btn_mute.setTitle_("🔇 Заглушено")
+            btn_mute.setTitle_(S.ALARM_BTN_MUTED)
             btn_mute.setEnabled_(False)
         except Exception:
             pass
@@ -182,7 +183,7 @@ def show_alarm(events_data):
             close_action()
 
         h_loc = DialogHandler.alloc().initWithAction_(open_meeting_action)
-        btn = _make_button("🔗 Открыть встречу", NSMakeRect(row1_right, row1_y, w, btn_h), h_loc, bold=True)
+        btn = _make_button(S.ALARM_BTN_OPEN_MEETING, NSMakeRect(row1_right, row1_y, w, btn_h), h_loc, bold=True)
         content.addSubview_(btn)
         handlers["open_location"] = h_loc
         row1_right -= gap
@@ -193,13 +194,13 @@ def show_alarm(events_data):
     def copy_action():
         parts = []
         for ev in events_data:
-            title = (ev.get('title') or 'Untitled').strip()
-            parts.append(f"📅 Event: {title}")
+            title = (ev.get('title') or S.MENU_ROW_UNTITLED).strip()
+            parts.append(S.COPY_EVENT_HEADER.format(title=title))
             parts.append(format_event_datetime_for_copy(ev['start'], now))
             if ev.get('url'):
-                parts.append(f"🔗 {ev['url']}")
+                parts.append(S.COPY_LINK.format(url=ev['url']))
             if ev.get('location'):
-                parts.append(f"📍 {ev['location']}")
+                parts.append(S.COPY_LOCATION.format(location=ev['location']))
             parts.append("")
         text = "\n".join(parts).rstrip() + "\n"
         pb = NSPasteboard.generalPasteboard()
@@ -208,7 +209,7 @@ def show_alarm(events_data):
         close_action()
 
     h_copy = DialogHandler.alloc().initWithAction_(copy_action)
-    btn_copy = _make_button("📋 Копировать", NSMakeRect(row1_right, row1_y, w, btn_h), h_copy)
+    btn_copy = _make_button(S.ALARM_BTN_COPY, NSMakeRect(row1_right, row1_y, w, btn_h), h_copy)
     content.addSubview_(btn_copy)
     handlers["copy"] = h_copy
 
@@ -217,7 +218,7 @@ def show_alarm(events_data):
     close_w = 120
     row2_right -= close_w
     h_close = DialogHandler.alloc().initWithAction_(close_action)
-    btn_close = _make_button("❌ Закрыть", NSMakeRect(row2_right, row2_y, close_w, btn_h), h_close, bold=True)
+    btn_close = _make_button(S.ALARM_BTN_CLOSE, NSMakeRect(row2_right, row2_y, close_w, btn_h), h_close, bold=True)
     content.addSubview_(btn_close)
     handlers["close"] = h_close
     row2_right -= gap
@@ -225,7 +226,7 @@ def show_alarm(events_data):
     snooze_w = 170
     row2_right -= snooze_w
     h_snooze = DialogHandler.alloc().initWithAction_(snooze_action)
-    btn_snooze = _make_button(f"⏰ Отложить {snooze_min} мин", NSMakeRect(row2_right, row2_y, snooze_w, btn_h), h_snooze)
+    btn_snooze = _make_button(S.ALARM_BTN_SNOOZE.format(minutes=snooze_min), NSMakeRect(row2_right, row2_y, snooze_w, btn_h), h_snooze)
     content.addSubview_(btn_snooze)
     handlers["snooze"] = h_snooze
     row2_right -= gap
@@ -233,7 +234,7 @@ def show_alarm(events_data):
     mute_w = 150
     row2_right -= mute_w
     h_mute = DialogHandler.alloc().initWithAction_(mute_action)
-    btn_mute = _make_button("🔇 Заглушить", NSMakeRect(row2_right, row2_y, mute_w, btn_h), h_mute)
+    btn_mute = _make_button(S.ALARM_BTN_MUTE, NSMakeRect(row2_right, row2_y, mute_w, btn_h), h_mute)
     content.addSubview_(btn_mute)
     handlers["mute"] = h_mute
 

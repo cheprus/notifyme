@@ -140,6 +140,11 @@ def fix_audio_output_py(app_path):
 
 
 def fix_sounds_dir(app_path):
+    """Переносит sounds/ в Resources и создаёт симлинк.
+
+    Если Resources/sounds уже существует (его положил build.py) —
+    сливаем файлы и удаляем Frameworks/sounds, не создавая sounds/sounds.
+    """
     fw_sounds = app_path / "Contents" / "Frameworks" / "sounds"
     res_sounds = app_path / "Contents" / "Resources" / "sounds"
 
@@ -153,7 +158,19 @@ def fix_sounds_dir(app_path):
     res_sounds.parent.mkdir(parents=True, exist_ok=True)
     n = len(list(fw_sounds.iterdir()))
     print(f"  Moving sounds/ to Resources ({n} files)...")
-    shutil.move(str(fw_sounds), str(res_sounds))
+
+    if res_sounds.exists() and res_sounds.is_dir():
+        # уже есть Resources/sounds (build.py) — сливаем без sounds/sounds
+        for f in fw_sounds.iterdir():
+            target = res_sounds / f.name
+            if not target.exists():
+                shutil.copy2(str(f), str(target))
+        shutil.rmtree(str(fw_sounds))
+        print(f"  Merged into existing Resources/sounds ({n} files)")
+    else:
+        shutil.move(str(fw_sounds), str(res_sounds))
+        print("  Moved to Resources/sounds")
+
     os.symlink(os.path.join("..", "Resources", "sounds"), fw_sounds)
     print("  Created: Frameworks/sounds -> ../Resources/sounds")
 

@@ -9,37 +9,56 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 # ============================================================
-# calendar_service: normalize_title, recover_tracker_url, split_links
+# classify: normalize_title, recover_tracker_url, split_links
 # ============================================================
 
 def test_normalize_title():
-    from calendar_service import _normalize_title
-    assert _normalize_title("MTS. https://support.example.com/issues/17702") == "MTS. #17702"
-    assert _normalize_title("https://jira.example.com/issues/42") == "#42"
-    assert _normalize_title("Ретро https://example.com/issues/555") == "Ретро #555"
-    assert _normalize_title("MTS. #17702") == "MTS. #17702"
-    assert _normalize_title("Созвон") == "Созвон"
-    assert _normalize_title("") == ""
-    assert _normalize_title(None) is None
-    assert _normalize_title("  Двойные   пробелы  ") == "Двойные пробелы"
+    from classify import normalize_title
+    assert normalize_title("MTS. https://support.example.com/issues/17702") == "MTS. #17702"
+    assert normalize_title("https://jira.example.com/issues/42") == "#42"
+    assert normalize_title("Ретро https://example.com/issues/555") == "Ретро #555"
+    assert normalize_title("MTS. #17702") == "MTS. #17702"
+    assert normalize_title("Созвон") == "Созвон"
+    assert normalize_title("") == ""
+    assert normalize_title(None) is None
+    assert normalize_title("  Двойные   пробелы  ") == "Двойные пробелы"
 
 
 def test_recover_tracker_url():
-    from calendar_service import _recover_tracker_url
-    r = _recover_tracker_url("MTS. https://support.igtel.ru/issues/17702", "")
-    assert r == "https://support.igtel.ru/issues/17702"
+    from classify import recover_tracker_url
+    from config import CONFIG
 
-    r = _recover_tracker_url("Ретро https://jira.example.com/issues/42", "")
-    assert r == "https://jira.example.com/issues/42"
+    old_domains = CONFIG.get("custom_tracker_domains")
+    old_base = CONFIG.get("tracker_base_url")
+    try:
+        # Явный custom-домен — URL вытаскивается из title
+        CONFIG["custom_tracker_domains"] = ["support.igtel.ru"]
+        CONFIG["tracker_base_url"] = ""
+        r = recover_tracker_url("MTS. https://support.igtel.ru/issues/17702", "")
+        assert r == "https://support.igtel.ru/issues/17702"
 
-    r = _recover_tracker_url("MTS. #17702", "")
-    assert r == "https://support.igtel.ru/issues/17702"
+        # Любой /issues/<N> — без custom-домена
+        CONFIG["custom_tracker_domains"] = []
+        r = recover_tracker_url("Ретро https://jira.example.com/issues/42", "")
+        assert r == "https://jira.example.com/issues/42"
 
-    assert _recover_tracker_url("Созвон", "") == ""
-    assert _recover_tracker_url("", "") == ""
+        # #N восстанавливается из tracker_base_url
+        CONFIG["tracker_base_url"] = "https://support.igtel.ru/issues/"
+        r = recover_tracker_url("MTS. #17702", "")
+        assert r == "https://support.igtel.ru/issues/17702"
 
-    r = _recover_tracker_url("Созвон", "Описание https://support.igtel.ru/issues/999")
-    assert r == "https://support.igtel.ru/issues/999"
+        # Ничего не находится
+        CONFIG["tracker_base_url"] = ""
+        assert recover_tracker_url("Созвон", "") == ""
+        assert recover_tracker_url("", "") == ""
+
+        # Восстановление из notes
+        CONFIG["custom_tracker_domains"] = ["support.igtel.ru"]
+        r = recover_tracker_url("Созвон", "Описание https://support.igtel.ru/issues/999")
+        assert r == "https://support.igtel.ru/issues/999"
+    finally:
+        CONFIG["custom_tracker_domains"] = old_domains
+        CONFIG["tracker_base_url"] = old_base
 
 
 def test_classify_url():
@@ -64,7 +83,7 @@ def test_classify_url():
 
 
 def test_split_links():
-    from calendar_service import split_links
+    from classify import split_links
     tracker, meeting = split_links(
         "https://support.igtel.ru/issues/1",
         "https://mts-link.ru/j/1",

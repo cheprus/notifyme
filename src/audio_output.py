@@ -1,16 +1,14 @@
 # src/audio_output.py
 """
-Управление аудиовыходом macOS через CoreAudio (ctypes).
-Без внешних утилит (SwitchAudioSource не нужен).
+Playback на конкретном устройстве через временное переключение
+системного default output.
 
-Основные функции:
-  - list_output_devices() -> list[dict]   # [{"name": str, "id": int, "is_default": bool}, ...]
-  - get_default_output_id() -> int | None
-  - get_default_output_name() -> str | None
-  - get_device_id_by_name(name: str) -> int | None
-  - play_on_device(path, device_name, loops=0) -> tuple | None
-      Проигрывает файл на конкретном устройстве через AVAudioEngine,
-      НЕ меняя системный дефолт.
+Почему так:
+- HAL AudioUnit и AVAudioEngine + CurrentDevice не работают надёжно
+  на всех macOS/устройствах.
+- Переключение kAudioHardwarePropertyDefaultOutputDevice + NSSound
+  работает всегда, на любом устройстве.
+- Дефолт возвращается после окончания или по stop().
 """
 
 import ctypes
@@ -26,30 +24,21 @@ from ctypes import (
     c_void_p,
 )
 
-from AVFoundation import (
-    AVAudioEngine,
-    AVAudioFile,
-    AVAudioPlayerNode,
-)
-from Foundation import NSURL
+from AppKit import NSSound
 
-# ---------- Константы CoreAudio ----------
+# ---------- CoreAudio константы ----------
 
 kAudioObjectSystemObject = 1
-kAudioObjectPropertyScopeGlobal = 1  # 'glob'
+kAudioObjectPropertyScopeGlobal = 1
 kAudioObjectPropertyElementMaster = 0
 kAudioObjectPropertyElementMain = 0
 
-kAudioHardwarePropertyDevices = 0x64657623  # 'dev#'
-kAudioHardwarePropertyDefaultOutputDevice = 0x644f7574  # 'dOut'
+kAudioHardwarePropertyDevices = 0x64657623
+kAudioHardwarePropertyDefaultOutputDevice = 0x644f7574
 
-kAudioDevicePropertyDeviceNameCFString = 0x6c6e616d  # 'lnam'
-kAudioDevicePropertyStreams = 0x73746d23  # 'stm#'
-kAudioDevicePropertyScopeOutput = 0x6f757470  # 'outp'
-
-# AudioUnit: kAudioOutputUnitProperty_CurrentDevice = 2000, kAudioUnitScope_Global = 1
-_kAudioOutputUnitProperty_CurrentDevice = 2000
-_kAudioUnitScope_Global = 1
+kAudioDevicePropertyDeviceNameCFString = 0x6c6e616d
+kAudioDevicePropertyStreams = 0x73746d23
+kAudioDevicePropertyScopeOutput = 0x6f757470
 
 AudioObjectID = c_uint32
 AudioDeviceID = c_uint32
@@ -64,73 +53,64 @@ class AudioObjectPropertyAddress(Structure):
     ]
 
 
-# ---------- Загрузка CoreAudio ----------
-
-_coreaudio: CDLL | None
-try:
-    _coreaudio = ctypes.CDLL(
-        "/System/Library/Frameworks/CoreAudio.framework/Versions/A/CoreAudio"
-    )
-except OSError:
-    try:
-        _coreaudio = ctypes.CDLL(
-            "/System/Library/Frameworks/CoreAudio.framework/CoreAudio"
-        )
-    except OSError:
-        _coreaudio = None
+def _load(framework, path_variants):
+    for p in path_variants:
+        try:
+            return CDLL(p)
+        except OSError:
+            continue
+    return None
 
 
-_HAS_CF: bool = False
+_coreaudio = _load("CoreAudio", [
+    "/System/Library/Frameworks/CoreAudio.framework/Versions/A/CoreAudio",
+    "/System/Library/Frameworks/CoreAudio.framework/CoreAudio",
+])
+_cf = _load("CoreFoundation", [
+    "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+    "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+])
 
-if _coreaudio is not None:
+_HAS_CF = _cf is not None
+_HAS_CORE = _coreaudio is not None
+
+if _HAS_CORE:
     _coreaudio.AudioObjectGetPropertyDataSize.argtypes = [
-        AudioObjectID,
-        POINTER(AudioObjectPropertyAddress),
-        c_uint32,
-        c_void_p,
-        POINTER(c_uint32),
+        AudioObjectID, POINTER(AudioObjectPropertyAddress), c_uint32, c_void_p, POINTER(c_uint32),
     ]
     _coreaudio.AudioObjectGetPropertyDataSize.restype = OSStatus
 
     _coreaudio.AudioObjectGetPropertyData.argtypes = [
-        AudioObjectID,
-        POINTER(AudioObjectPropertyAddress),
-        c_uint32,
-        c_void_p,
-        POINTER(c_uint32),
-        c_void_p,
+        AudioObjectID, POINTER(AudioObjectPropertyAddress), c_uint32, c_void_p,
+        POINTER(c_uint32), c_void_p,
     ]
     _coreaudio.AudioObjectGetPropertyData.restype = OSStatus
 
-    try:
-        _cf = ctypes.CDLL(
-            "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
-        )
-        _cf.CFStringGetCStringPtr.argtypes = [c_void_p, c_uint32]
-        _cf.CFStringGetCStringPtr.restype = c_char_p
-        _cf.CFStringGetLength.argtypes = [c_void_p]
-        _cf.CFStringGetLength.restype = c_int
-        _cf.CFStringGetCString.argtypes = [c_void_p, c_char_p, c_int, c_uint32]
-        _cf.CFStringGetCString.restype = ctypes.c_bool
-        _cf.CFRelease.argtypes = [c_void_p]
-        _cf.CFRelease.restype = None
-        _HAS_CF = True
-    except OSError:
-        _HAS_CF = False
+    _coreaudio.AudioObjectSetPropertyData.argtypes = [
+        AudioObjectID, POINTER(AudioObjectPropertyAddress), c_uint32, c_void_p,
+        c_uint32, c_void_p,
+    ]
+    _coreaudio.AudioObjectSetPropertyData.restype = OSStatus
+
+if _HAS_CF:
+    _cf.CFStringGetCStringPtr.argtypes = [c_void_p, c_uint32]
+    _cf.CFStringGetCStringPtr.restype = c_char_p
+    _cf.CFStringGetLength.argtypes = [c_void_p]
+    _cf.CFStringGetLength.restype = c_int
+    _cf.CFStringGetCString.argtypes = [c_void_p, c_char_p, c_int, c_uint32]
+    _cf.CFStringGetCString.restype = ctypes.c_bool
+    _cf.CFRelease.argtypes = [c_void_p]
+    _cf.CFRelease.restype = None
 
 
 _kCFStringEncodingUTF8 = 0x08000100
-_LOCK = threading.RLock()
 
-
-# ---------- Внутренние помощники ----------
 
 def _make_address(selector, scope=kAudioObjectPropertyScopeGlobal, element=kAudioObjectPropertyElementMaster):
     return AudioObjectPropertyAddress(selector, scope, element)
 
 
 def _get_property_data_size(object_id, address):
-    assert _coreaudio is not None
     size = c_uint32(0)
     status = _coreaudio.AudioObjectGetPropertyDataSize(
         object_id, byref(address), 0, None, byref(size)
@@ -141,7 +121,6 @@ def _get_property_data_size(object_id, address):
 
 
 def _get_property_data(object_id, address, data_size, out_buffer):
-    assert _coreaudio is not None
     size = c_uint32(data_size)
     status = _coreaudio.AudioObjectGetPropertyData(
         object_id, byref(address), 0, None, byref(size), out_buffer
@@ -154,7 +133,6 @@ def _get_property_data(object_id, address, data_size, out_buffer):
 def _get_device_name(device_id):
     if not _HAS_CF:
         return None
-    assert _coreaudio is not None
     address = _make_address(kAudioDevicePropertyDeviceNameCFString)
     size = _get_property_data_size(device_id, address)
     if size is None or size == 0:
@@ -191,9 +169,7 @@ def _device_has_output(device_id):
         element=kAudioObjectPropertyElementMain,
     )
     size = _get_property_data_size(device_id, address)
-    if size is None:
-        return False
-    if size < ctypes.sizeof(c_uint32):
+    if size is None or size < ctypes.sizeof(c_uint32):
         return False
     return size // ctypes.sizeof(c_uint32) > 0
 
@@ -201,19 +177,17 @@ def _device_has_output(device_id):
 # ---------- Публичные функции: устройства ----------
 
 def is_available():
-    return _coreaudio is not None and _HAS_CF
+    return _HAS_CORE and _HAS_CF
 
 
 def list_output_devices():
     if not is_available():
         return []
 
-    devices = []
     address = _make_address(kAudioHardwarePropertyDevices)
     size = _get_property_data_size(kAudioObjectSystemObject, address)
     if size is None or size == 0:
         return []
-
     count = size // ctypes.sizeof(c_uint32)
     if count == 0:
         return []
@@ -224,7 +198,7 @@ def list_output_devices():
         return []
 
     default_id = get_default_output_id()
-
+    devices = []
     for dev_id in ids:
         if not _device_has_output(dev_id):
             continue
@@ -242,7 +216,6 @@ def list_output_devices():
 def get_default_output_id():
     if not is_available():
         return None
-    assert _coreaudio is not None
     address = _make_address(kAudioHardwarePropertyDefaultOutputDevice)
     dev_id = c_uint32(0)
     size = c_uint32(ctypes.sizeof(dev_id))
@@ -252,6 +225,18 @@ def get_default_output_id():
     if status != 0:
         return None
     return int(dev_id.value)
+
+
+def set_default_output_id(device_id):
+    if not is_available():
+        return False
+    address = _make_address(kAudioHardwarePropertyDefaultOutputDevice)
+    dev_id = c_uint32(device_id)
+    status = _coreaudio.AudioObjectSetPropertyData(
+        kAudioObjectSystemObject, byref(address), 0, None,
+        ctypes.sizeof(dev_id), byref(dev_id),
+    )
+    return status == 0
 
 
 def get_default_output_name():
@@ -270,79 +255,85 @@ def get_device_id_by_name(name):
     return None
 
 
-# ---------- Публичные функции: воспроизведение ----------
+# ---------- Playback через переключение дефолта + NSSound ----------
+
+class _PlaybackHandle:
+    __slots__ = ("sound", "original_id", "stopped", "lock")
+
+    def __init__(self, sound, original_id):
+        self.sound = sound
+        self.original_id = original_id
+        self.stopped = False
+        self.lock = threading.Lock()
+
+    def stop(self):
+        with self.lock:
+            if self.stopped:
+                return
+            self.stopped = True
+            try:
+                if self.sound is not None:
+                    self.sound.stop()
+            except Exception:
+                pass
+            if self.original_id is not None:
+                ok = set_default_output_id(self.original_id)
+                print(f"[AUDIO] restored default device id={self.original_id} ok={ok}", flush=True)
+            self.sound = None
+            self.original_id = None
+
 
 def play_on_device(path, device_name, loops=0):
-    """Проиграть файл на конкретном устройстве, не меняя системный дефолт.
-
-    Возвращает (engine, player, audio_file) — держать ссылки, пока играет.
-    Если device_name == "Default" или устройство не найдено — вернуть None.
-    Если AVAudioEngine не смог привязаться к устройству — вернуть None,
-    вызывающий код откатится на NSSound (системный дефолт).
-    """
+    """Проиграть файл на устройстве через переключение системного дефолта."""
     if not path or not device_name or device_name == "Default":
+        return None
+    if not is_available():
         return None
 
     device_id = get_device_id_by_name(device_name)
     if device_id is None:
+        print(f"[AUDIO] play_on_device: device not found: {device_name!r}", flush=True)
         return None
 
-    try:
-        url = NSURL.fileURLWithPath_(path)
-        audio_file, _err = AVAudioFile.alloc().initForReading_error_(url, None)
-        if audio_file is None:
-            return None
-
-        engine = AVAudioEngine.alloc().init()
-        player = AVAudioPlayerNode.alloc().init()
-        engine.attachNode_(player)
-        engine.connect_to_format_(player, engine.mainMixerNode(), audio_file.processingFormat())
-
-        out_node = engine.outputNode()
-        au = out_node.audioUnit()
-        if au is None:
-            return None
-
-        # Привязать output node к устройству (kAudioOutputUnitProperty_CurrentDevice).
-        # Это НЕ меняет kAudioHardwarePropertyDefaultOutputDevice.
-        err = au.setProperty_withValue_forScope_element_(
-            _kAudioOutputUnitProperty_CurrentDevice,
-            c_uint32(device_id),
-            _kAudioUnitScope_Global,
-            0,
-        )
-        if err != 0:
-            print(f"[DEBUG] play_on_device: set device rc={err}", flush=True)
-            return None
-
-        ok, err = engine.startAndReturnError_(None)
+    original_id = get_default_output_id()
+    if original_id == device_id:
+        print(f"[AUDIO] {device_name!r} is already default, playing directly", flush=True)
+    else:
+        ok = set_default_output_id(device_id)
         if not ok:
-            print(f"[DEBUG] play_on_device: engine start failed: {err}", flush=True)
+            print(f"[AUDIO] set_default_output_id({device_id}) failed", flush=True)
             return None
+        print(f"[AUDIO] switched default: {original_id} -> {device_id} ({device_name!r})", flush=True)
 
-        player.scheduleFile_atTime_completionHandler_(audio_file, None, None)
-        if loops:
-            player.setLoops_(loops)
-        player.play()
-        return (engine, player, audio_file)
+    try:
+        sound = NSSound.alloc().initWithContentsOfFile_byReference_(path, True)
+        if sound is None:
+            print(f"[AUDIO] NSSound failed to load {path!r}", flush=True)
+            if original_id is not None:
+                set_default_output_id(original_id)
+            return None
+        try:
+            sound.setLoops_(loops)
+        except Exception:
+            pass
+        if not sound.play():
+            print("[AUDIO] NSSound.play() returned False", flush=True)
+            if original_id is not None:
+                set_default_output_id(original_id)
+            return None
+        print(f"[AUDIO] playing {path} on {device_name!r} (device_id={device_id})", flush=True)
+        return _PlaybackHandle(sound, original_id)
     except Exception as e:
-        print(f"[DEBUG] play_on_device failed: {e}", flush=True)
+        print(f"[AUDIO] play_on_device failed: {e}", flush=True)
+        if original_id is not None:
+            set_default_output_id(original_id)
         return None
 
 
 def stop_playing(handle):
-    """Остановить engine/player из play_on_device."""
     if not handle:
         return
     try:
-        engine, player, _audio_file = handle
-        try:
-            player.stop()
-        except Exception:
-            pass
-        try:
-            engine.stop()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        handle.stop()
+    except Exception as e:
+        print(f"[AUDIO] stop_playing failed: {e}", flush=True)
