@@ -55,6 +55,33 @@ def _parse_dnd_until():
         return None
 
 
+def _build_selected_text(selected_ids, all_events, now):
+    """Собрать текст для буфера из selected_ids и списка событий.
+
+    Чистая функция — тестируется без AppKit.
+    """
+    if not selected_ids:
+        return ""
+    selected_events = [ev for ev in all_events if ev["id"] in selected_ids]
+    if not selected_events:
+        return ""
+    text_parts = [format_event_for_clipboard(ev, now) for ev in selected_events]
+    return "\n".join(text_parts)
+
+
+def _dedup_events(events):
+    """Убрать дубликаты по ev['id'], сохраняя порядок."""
+    seen = set()
+    result = []
+    for ev in events:
+        ev_id = ev.get("id")
+        if ev_id in seen:
+            continue
+        seen.add(ev_id)
+        result.append(ev)
+    return result
+
+
 class StatusBarController(NSObject):
     def initWithApp_(self, app):
         self = objc.super(StatusBarController, self).init()
@@ -95,24 +122,29 @@ class StatusBarController(NSObject):
             print(f"[DEBUG] show_event_card failed: {e}", flush=True)
             traceback.print_exc()
 
+    def copySelected_(self, sender=None):
+        """Копировать выбранные события в буфер и сбросить выбор."""
+        print(f"[DEBUG] copySelected_: selected_ids={sorted(self.selected_ids)}", flush=True)
+        self.copy_selected_to_clipboard()
+        self.selected_ids.clear()
+        self.update()
+
     def copy_selected_to_clipboard(self):
         now = datetime.now()
         events = get_upcoming_events(self.app.store)
         week_events = get_week_events(self.app.store)
-        all_events = events + week_events
-        selected_events = [ev for ev in all_events if ev["id"] in self.selected_ids]
+        all_events = _dedup_events(events + week_events)
+        text = _build_selected_text(self.selected_ids, all_events, now)
 
         pb = NSPasteboard.generalPasteboard()
         pb.clearContents()
 
-        if not selected_events:
+        if not text:
             print("[DEBUG] No selected events, clipboard cleared", flush=True)
             return
 
-        text_parts = [format_event_for_clipboard(ev, now) for ev in selected_events]
-        full_text = "\n".join(text_parts)
-        pb.setString_forType_(full_text, "public.utf8-plain-text")
-        print(f"[DEBUG] Copied {len(selected_events)} events", flush=True)
+        pb.setString_forType_(text, "public.utf8-plain-text")
+        print(f"[DEBUG] Copied {len(text)} chars ({len(self.selected_ids)} events)", flush=True)
 
     def playSoundPreview_(self, sender):
         raw = sender.title().replace(S.SETTINGS_CHECK, "").replace(S.SETTINGS_UNCHECK, "").strip()
@@ -153,7 +185,6 @@ class StatusBarController(NSObject):
         self.update()
 
     def _reinstall_hotkey_if_needed(self):
-        """Переустановить hotkey. Звать после Settings/Import/Reset."""
         if not _HAS_HOTKEYS or install_hotkey is None:
             return
         if not is_accessibility_granted():
@@ -199,7 +230,6 @@ class StatusBarController(NSObject):
         self.update()
 
     def confirmQuit_(self, sender=None):
-        """Прямой Quit без NSAlert — menu-bar app не должен «зависать» на подтверждении."""
         print("[DEBUG] confirmQuit_ called", flush=True)
         try:
             from alarm_utils import close_all_alarms
@@ -264,6 +294,16 @@ class StatusBarController(NSObject):
             add_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_NEW_EVENT, "addToCalendar:", "")
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
+
+            # Копирование выбранных — только если есть отмеченные
+            if self.selected_ids:
+                copy_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                    f"📋 Копировать выбранные ({len(self.selected_ids)})",
+                    "copySelected:",
+                    "",
+                )
+                copy_item.setTarget_(self)
+                self.menu.addItem_(copy_item)
 
             settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 S.SETTINGS_TITLE, "openSettings:", ","
@@ -374,6 +414,8 @@ class StatusBarController(NSObject):
                     self.notified_ids.add(ev["id"])
             if to_notify:
                 show_alarm(to_notify)
+                CONFIG["last_notified_id"] = to_notify[-1]["id"]
+                save_config(CONFIG)
                 save_state(self.notified_ids)
         except Exception as e:
             print(f"[DEBUG] Notification check error: {e}", flush=True)

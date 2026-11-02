@@ -192,3 +192,18 @@ class MenuItemView(ClickableView):
         else:
             self.controller.selected_ids.add(ev_id)
             sender.setTitle_("☑")
+        print(
+            f"[DEBUG] toggleCheckbox: id={ev_id!r} "
+            f"selected={sorted(self.controller.selected_ids)}",
+            flush=True,
+        )
+        # Автокопирование: то, что раньше работало без отдельной кнопки
+        try:
+            self.controller.copy_selected_to_clipboard()
+        except Exception as e:
+            print(f"[DEBUG] auto-copy after toggle failed: {e}", flush=True)
+        # Пересобрать меню, чтобы пункт «Копировать выбранные (N)» обновился
+        try:
+            self.controller.update()
+        except Exception as e:
+            print(f"[DEBUG] update after toggle failed: {e}", flush=True)

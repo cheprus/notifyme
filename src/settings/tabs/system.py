@@ -79,16 +79,23 @@ class SystemTab:
         )
         v.addSubview_(cb)
 
-        # ----- Clear History -----
-        row_with_label(v, layout, "Clear History")
+        # ----- Clear History / Clear Last -----
+        row_with_label(v, layout, "History")
         y = layout.y + layout.row_gap
         clear_btn = make_button(
             "Очистить историю уведомлений",
-            NSMakeRect(layout.control_x, y, 300, 26),
+            NSMakeRect(layout.control_x, y, 230, 26),
             self._clear_history,
             self._callbacks,
         )
         v.addSubview_(clear_btn)
+        clear_last_btn = make_button(
+            "Очистить последнее",
+            NSMakeRect(layout.control_x + 238, y, 180, 26),
+            self._clear_last,
+            self._callbacks,
+        )
+        v.addSubview_(clear_last_btn)
 
         # ----- Export / Import / Reset -----
         row_with_label(v, layout, "Config")
@@ -205,7 +212,7 @@ class SystemTab:
         print(f"[SETTINGS] DND until {latest_end}", flush=True)
         self._refresh_dnd_state()
 
-    # ----- Clear History -----
+    # ----- Clear History / Clear Last -----
 
     def _clear_history(self):
         try:
@@ -220,7 +227,29 @@ class SystemTab:
             save_state(ids)
         except Exception as e:
             print(f"[SETTINGS] clear state failed: {e}", flush=True)
+        CONFIG["last_notified_id"] = None
+        save_config(CONFIG)
         print("[SETTINGS] history cleared", flush=True)
+
+    def _clear_last(self):
+        """Удалить последнее показанное событие из state — alarm покажется снова."""
+        last_id = CONFIG.get("last_notified_id")
+        if not last_id:
+            print("[SETTINGS] clear last: no last_notified_id in config", flush=True)
+            return
+        try:
+            from state_manager import load_state, save_state
+            ids = load_state()
+            if last_id in ids:
+                ids.discard(last_id)
+                save_state(ids)
+                print(f"[SETTINGS] removed last notified id={last_id}", flush=True)
+            else:
+                print(f"[SETTINGS] last id {last_id!r} not in state (уже очищено)", flush=True)
+        except Exception as e:
+            print(f"[SETTINGS] clear last failed: {e}", flush=True)
+        CONFIG["last_notified_id"] = None
+        save_config(CONFIG)
 
     # ----- Export / Import / Reset -----
 
