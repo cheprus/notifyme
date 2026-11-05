@@ -56,10 +56,6 @@ def _parse_dnd_until():
 
 
 def _build_selected_text(selected_ids, all_events, now):
-    """Собрать текст для буфера из selected_ids и списка событий.
-
-    Чистая функция — тестируется без AppKit.
-    """
     if not selected_ids:
         return ""
     selected_events = [ev for ev in all_events if ev["id"] in selected_ids]
@@ -70,7 +66,6 @@ def _build_selected_text(selected_ids, all_events, now):
 
 
 def _dedup_events(events):
-    """Убрать дубликаты по ev['id'], сохраняя порядок."""
     seen = set()
     result = []
     for ev in events:
@@ -91,12 +86,13 @@ class StatusBarController(NSObject):
         self.status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(NSVariableStatusItemLength)
         self.menu = NSMenu.alloc().init()
         self.status_item.setMenu_(self.menu)
-        self.notified_ids = load_state()
+        self.notified_ids, self._state_last_id = load_state()
         self.is_checking = False
         self.selected_ids = set()
         self._icon_cache_key = None
         self._icon_path = None
         self._hotkey_monitor = None
+        self._first_check = True
 
         if _HAS_HOTKEYS and install_hotkey is not None and is_accessibility_granted():
             try:
@@ -123,7 +119,6 @@ class StatusBarController(NSObject):
             traceback.print_exc()
 
     def copySelected_(self, sender=None):
-        """Копировать выбранные события в буфер и сбросить выбор."""
         print(f"[DEBUG] copySelected_: selected_ids={sorted(self.selected_ids)}", flush=True)
         self.copy_selected_to_clipboard()
         self.selected_ids.clear()
@@ -295,7 +290,6 @@ class StatusBarController(NSObject):
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
 
-            # Копирование выбранных — только если есть отмеченные
             if self.selected_ids:
                 copy_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                     f"📋 Копировать выбранные ({len(self.selected_ids)})",
@@ -396,28 +390,59 @@ class StatusBarController(NSObject):
         try:
             dnd = _parse_dnd_until()
             if dnd is not None and dnd > datetime.now():
+                print(f"[DEBUG] checkNotifications: DND until {dnd}", flush=True)
                 return
 
             now = datetime.now()
             events = get_upcoming_events(self.app.store)
             notify_before = CONFIG.get("notify_minutes_before", 5)
             notify_after = CONFIG.get("notify_minutes_after", 2)
+            auto_close_minutes = CONFIG.get("auto_close_minutes", 15)
             hyst = 5.0 / 60.0
+
+            is_first = self._first_check
+            self._first_check = False
+
             to_notify = []
             for ev in events:
+                if ev["id"] in self.notified_ids:
+                    continue
                 delta_minutes = (ev["start"] - now).total_seconds() / 60.0
-                if (
-                    -notify_after <= delta_minutes <= notify_before + hyst
-                    and ev["id"] not in self.notified_ids
-                ):
+                if -notify_after <= delta_minutes <= notify_before + hyst:
                     to_notify.append(ev)
                     self.notified_ids.add(ev["id"])
+                elif (
+                    is_first
+                    and now <= ev["end"]
+                    and -auto_close_minutes <= delta_minutes < -notify_after
+                ):
+                    print(
+                        f"[DEBUG] checkNotifications: missed {ev['title'][:50]!r} "
+                        f"(started {-delta_minutes:.0f}m ago, ends in "
+                        f"{(ev['end'] - now).total_seconds() / 60:.0f}m)",
+                        flush=True,
+                    )
+                    to_notify.append(ev)
+                    self.notified_ids.add(ev["id"])
+                else:
+                    print(
+                        f"[DEBUG] checkNotifications: {ev['title'][:50]!r} "
+                        f"delta={delta_minutes:.1f}m (window [-{notify_after}; {notify_before}])",
+                        flush=True,
+                    )
             if to_notify:
+                print(f"[DEBUG] Notifying {len(to_notify)} events (first={is_first})", flush=True)
                 show_alarm(to_notify)
                 CONFIG["last_notified_id"] = to_notify[-1]["id"]
                 save_config(CONFIG)
-                save_state(self.notified_ids)
+                save_state(self.notified_ids, CONFIG["last_notified_id"])
+            elif events:
+                print(f"[DEBUG] checkNotifications: {len(events)} events, none in window", flush=True)
+            else:
+                print("[DEBUG] checkNotifications: 0 events", flush=True)
         except Exception as e:
+            import traceback
             print(f"[DEBUG] Notification check error: {e}", flush=True)
+            traceback.print_exc()
         finally:
             self.is_checking = False

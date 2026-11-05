@@ -24,7 +24,6 @@ def test_display_timezone_hot_reload():
         utc_dt = datetime(2026, 10, 30, 12, 0, tzinfo=ZoneInfo("UTC"))
         assert to_display_tz(utc_dt).hour == 15
 
-        # меняем без перезапуска
         CONFIG["display_timezone"] = "Asia/Tokyo"
         assert to_display_tz(utc_dt).hour == 21
     finally:
@@ -58,10 +57,8 @@ def test_classify_hot_reload_tracker_domains():
     old = CONFIG.get("custom_tracker_domains")
     try:
         CONFIG["custom_tracker_domains"] = []
-        # без custom-домена неизвестный URL = unknown
         assert classify_url("https://newcorp.example/board/1") == "unknown"
 
-        # добавляем без перезапуска
         CONFIG["custom_tracker_domains"] = ["newcorp.example"]
         assert classify_url("https://newcorp.example/board/1") == "tracker"
     finally:
@@ -139,11 +136,7 @@ def test_include_notes_hot_reload():
     old = CONFIG.get("include_notes_in_copy")
     try:
         now = datetime(2026, 10, 30, 10, 0, tzinfo=ZoneInfo("UTC"))
-        ev = {
-            "title": "X",
-            "start": now,
-            "notes": "важное",
-        }
+        ev = {"title": "X", "start": now, "notes": "важное"}
         CONFIG["include_notes_in_copy"] = False
         assert "📝" not in format_event_for_clipboard(ev, now)
 
@@ -158,7 +151,6 @@ def test_include_notes_hot_reload():
 # ============================================================
 
 def test_reinstall_hotkey_no_crash_without_ax():
-    """На машине без Accessibility _reinstall_hotkey не должен падать."""
     from status_bar import StatusBarController
 
     class Fake:
@@ -171,7 +163,7 @@ def test_reinstall_hotkey_no_crash_without_ax():
 
 
 # ============================================================
-# 7. notify_minutes_before читается на лету в alarm-логике
+# 7. auto_close_minutes читается на лету
 # ============================================================
 
 def test_alarm_lifetime_hot_reload():
@@ -195,6 +187,25 @@ def test_alarm_lifetime_hot_reload():
 
 
 # ============================================================
+# 8. snooze_minutes читается на лету
+# ============================================================
+
+def test_snooze_minutes_hot_reload():
+    from config import CONFIG
+    from dialogs import _snooze_minutes
+
+    old = CONFIG.get("snooze_minutes")
+    try:
+        CONFIG["snooze_minutes"] = 7
+        assert _snooze_minutes() == 7
+
+        CONFIG["snooze_minutes"] = 15
+        assert _snooze_minutes() == 15
+    finally:
+        CONFIG["snooze_minutes"] = old
+
+
+# ============================================================
 # runner
 # ============================================================
 
@@ -209,6 +220,7 @@ if __name__ == "__main__":
         test_include_notes_hot_reload,
         test_reinstall_hotkey_no_crash_without_ax,
         test_alarm_lifetime_hot_reload,
+        test_snooze_minutes_hot_reload,
     ]
     failed = 0
     for t in tests:

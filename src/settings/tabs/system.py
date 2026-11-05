@@ -222,9 +222,9 @@ class SystemTab:
             print(f"[SETTINGS] close_all_alarms failed: {e}", flush=True)
         try:
             from state_manager import load_state, save_state
-            ids = load_state()
+            ids, _ = load_state()
             ids.clear()
-            save_state(ids)
+            save_state(ids, None)
         except Exception as e:
             print(f"[SETTINGS] clear state failed: {e}", flush=True)
         CONFIG["last_notified_id"] = None
@@ -239,10 +239,10 @@ class SystemTab:
             return
         try:
             from state_manager import load_state, save_state
-            ids = load_state()
+            ids, _ = load_state()
             if last_id in ids:
                 ids.discard(last_id)
-                save_state(ids)
+                save_state(ids, None)
                 print(f"[SETTINGS] removed last notified id={last_id}", flush=True)
             else:
                 print(f"[SETTINGS] last id {last_id!r} not in state (уже очищено)", flush=True)
