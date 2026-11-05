@@ -24,6 +24,7 @@ from AppKit import (
 from Foundation import NSApplication, NSObject
 
 from .binding import ConfigBinding
+from .tabs.about import AboutTab
 from .tabs.alarm import AlarmTab
 from .tabs.calendar import CalendarTab
 from .tabs.conferences import ConferencesTab
@@ -90,7 +91,6 @@ class SettingsWindow(NSObject):
                 print(f"[SETTINGS] on_change failed: {e}", flush=True)
 
     def _on_close(self):
-        """При закрытии окна: остановить preview во всех вкладках."""
         for name, tab in self._tab_instances.items():
             cleanup = getattr(tab, "cleanup", None)
             if cleanup is None:
@@ -125,7 +125,11 @@ class SettingsWindow(NSObject):
         self._tab_instances["system"] = sys_tab
         item_sys = self._make_tab_item("system", "System", sys_tab.view())
 
-        return [item_alarm, item_conf, item_cal, item_sys]
+        about_tab = AboutTab()
+        self._tab_instances["about"] = about_tab
+        item_about = self._make_tab_item("about", "About", about_tab.view())
+
+        return [item_alarm, item_conf, item_cal, item_sys, item_about]
 
     def reload_tabs(self):
         if self._tab_view is None:
