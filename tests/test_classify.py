@@ -123,6 +123,47 @@ def test_split_links_tautoki_correct():
     assert "mts-link.ru" in meeting
 
 
+# ============================================================
+# clean_url: EventKit может отдать "URL - Title" одной строкой
+# ============================================================
+
+def test_clean_url_strips_title():
+    from classify import clean_url
+    assert clean_url("https://support.igtel.ru/issues/17793 - МИ - пересчет") == "https://support.igtel.ru/issues/17793"
+    assert clean_url("  https://x.com/a  ") == "https://x.com/a"
+    assert clean_url("") == ""
+    assert clean_url(None) == ""
+
+
+def test_clean_url_no_space():
+    from classify import clean_url
+    assert clean_url("https://x.com/a") == "https://x.com/a"
+    assert clean_url("https://x.com/a?b=1&c=2") == "https://x.com/a?b=1&c=2"
+
+
+def test_split_links_strips_title_from_url():
+    from classify import split_links
+    tracker, meeting = split_links(
+        "https://support.igtel.ru/issues/17793 - МИ - пересчет",
+        "https://mgts.mts-link.ru/j/60206623/27803555269/session/27382505824",
+        "",
+    )
+    assert tracker == "https://support.igtel.ru/issues/17793"
+    assert "mts-link.ru" in meeting
+    assert "%20" not in tracker
+
+
+def test_split_links_strips_title_from_location():
+    from classify import split_links
+    tracker, meeting = split_links(
+        "https://support.igtel.ru/issues/1",
+        "https://mgts.mts-link.ru/j/1 - Meeting Title",
+        "",
+    )
+    assert "mts-link.ru" in meeting
+    assert "Meeting Title" not in meeting
+
+
 if __name__ == "__main__":
     tests = [
         test_looks_like_url,
@@ -137,6 +178,10 @@ if __name__ == "__main__":
         test_split_links_empty,
         test_split_links_tautoki_swapped,
         test_split_links_tautoki_correct,
+        test_clean_url_strips_title,
+        test_clean_url_no_space,
+        test_split_links_strips_title_from_url,
+        test_split_links_strips_title_from_location,
     ]
     failed = 0
     for t in tests:

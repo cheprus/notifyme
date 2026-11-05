@@ -161,6 +161,19 @@ def test_notes_tracker_fills_url():
         CONFIG["custom_tracker_domains"] = old
 
 
+def test_url_with_title_stripped():
+    """EventKit может отдать 'URL - Title' одной строкой — url должен обрезаться."""
+    ev = _fetch_one(
+        title="МГТС. #17793",
+        url="https://support.igtel.ru/issues/17793 - МИ - пересчет",
+        location="https://mgts.mts-link.ru/j/1",
+    )
+    assert ev["url"] == "https://support.igtel.ru/issues/17793"
+    assert "МИ" not in ev["url"]
+    assert "%20" not in ev["url"]
+    assert "mts-link.ru" in ev["location"]
+
+
 if __name__ == "__main__":
     tests = [
         test_swapped_meeting_tracker,
@@ -170,6 +183,7 @@ if __name__ == "__main__":
         test_only_meeting_no_tracker,
         test_title_normalized,
         test_notes_tracker_fills_url,
+        test_url_with_title_stripped,
     ]
     failed = 0
     for t in tests:

@@ -14,6 +14,7 @@ from config import CONFIG
 _ANY_ISSUE_URL_RE = re.compile(r"https?://[^\s]*?/issues/(\d+)", re.IGNORECASE)
 _HASH_ISSUE_RE = re.compile(r"(?:^|\s)#(\d+)(?=\s|$|[,.;:!?])")
 _URL_LIKE_RE = re.compile(r"^https?://", re.IGNORECASE)
+_URL_STRICT_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 
 
 # ---------- Паттерны классификации ----------
@@ -68,10 +69,31 @@ def _custom_patterns(key):
     return result
 
 
+def clean_url(s):
+    """Обрезать URL по первому пробелу.
+
+    EventKit иногда отдаёт `event.URL()` как "https://x/issues/1 - Title Text".
+    Настоящий URL не содержит пробелов (RFC 3986), всё после первого пробела —
+    это уже title, который EventKit приклеил к URL.
+    """
+    if not s:
+        return ""
+    s = s.strip()
+    # обрезать по первому whitespace
+    return s.split(None, 1)[0] if s else ""
+
+
 def looks_like_url(s):
     if not s:
         return False
     return bool(_URL_LIKE_RE.match(s.strip()))
+
+
+def looks_like_clean_url(s):
+    """Строгий вариант: URL без пробелов."""
+    if not s:
+        return False
+    return bool(_URL_STRICT_RE.match(s.strip()))
 
 
 # ---------- Публичные функции ----------
@@ -95,11 +117,11 @@ def recover_tracker_url(title, notes):
             continue
         m = re.search(r"https?://[^\s]*?" + re.escape(domain) + r"[^\s]*", haystack, re.IGNORECASE)
         if m:
-            return m.group(0)
+            return clean_url(m.group(0))
 
     m = _ANY_ISSUE_URL_RE.search(haystack)
     if m:
-        return m.group(0)
+        return clean_url(m.group(0))
 
     base = CONFIG.get("tracker_base_url", "").strip()
     if base:
@@ -138,13 +160,14 @@ def classify_url(url):
 def split_links(tracker_url, meeting_url, notes):
     """Разделить (url, location) на (tracker, meeting).
 
+    - Если url содержит пробелы (URL + title из EventKit) — обрезать.
     - Если оба поля заполнены и перепутаны — свапнуть.
     - Если одно пустое — вытащить из notes.
     - Если url классифицируется как meeting — перенести в meeting.
     - Если location классифицируется как tracker — перенести в tracker.
     """
-    url_field = (tracker_url or "").strip()
-    location_field = (meeting_url or "").strip()
+    url_field = clean_url(tracker_url or "")
+    location_field = clean_url(meeting_url or "")
 
     if url_field and location_field:
         url_kind = classify_url(url_field)
@@ -156,6 +179,7 @@ def split_links(tracker_url, meeting_url, notes):
     if notes:
         found = re.findall(r'https?://[^\s<>"\']+', notes)
         for link in found:
+            link = clean_url(link)
             kind = classify_url(link)
             if kind == "tracker" and not url_field:
                 url_field = link

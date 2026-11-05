@@ -14,6 +14,7 @@ except ImportError:
 
 from classify import (
     classify_url,  # noqa: F401  (реэкспорт для add_event_window)
+    clean_url,
     looks_like_url,
     normalize_title,
     recover_tracker_url,
@@ -137,6 +138,10 @@ def _fetch_events(store, start_dt, end_dt):
             end = datetime.fromtimestamp(end_date.timeIntervalSince1970())
             url = event.URL()
             url_str = url.absoluteString() if url else ""
+            # EventKit иногда отдаёт URL + title через пробел
+            # ("https://x/issues/1 - Title Text"). Настоящий URL
+            # не содержит пробелов (RFC 3986) — обрезаем по первому.
+            url_str = clean_url(url_str)
             location = event.location() or ""
             notes = event.notes() or ""
             unique_id = f"{event.eventIdentifier()}_{start.isoformat()}"
@@ -148,8 +153,6 @@ def _fetch_events(store, start_dt, end_dt):
                 url_str = recover_tracker_url(raw_title, notes)
 
             # Нормализация при чтении: разделяем tracker (url) и meeting (location).
-            # split_links применяем только если location похож на URL —
-            # иначе там физический адрес ("Room 5"), его нельзя затирать.
             tracker_url = url_str
             meeting_url = location if looks_like_url(location) else ""
             if tracker_url or meeting_url:
