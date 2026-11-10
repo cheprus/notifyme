@@ -290,14 +290,19 @@ class StatusBarController(NSObject):
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
 
-            if self.selected_ids:
-                copy_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                    f"📋 Копировать выбранные ({len(self.selected_ids)})",
-                    "copySelected:",
-                    "",
-                )
-                copy_item.setTarget_(self)
-                self.menu.addItem_(copy_item)
+            # Пункт «Копировать выбранные» всегда на месте — не прыгает при выборе.
+            # Когда ничего не выбрано — disabled (серый).
+            n_selected = len(self.selected_ids)
+            if n_selected:
+                copy_title = f"📋 Копировать выбранные ({n_selected})"
+            else:
+                copy_title = "📋 Копировать выбранные"
+            copy_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                copy_title, "copySelected:", ""
+            )
+            copy_item.setTarget_(self)
+            copy_item.setEnabled_(n_selected > 0)
+            self.menu.addItem_(copy_item)
 
             settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 S.SETTINGS_TITLE, "openSettings:", ","
