@@ -4,6 +4,7 @@ import os
 import plistlib
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +15,7 @@ APP_BUNDLE = ROOT / "dist" / f"{APP_NAME}.app"
 ICON = ROOT / "assets" / "myicon.icns"
 SOUNDS_DIR = ROOT / "assets" / "sounds"
 ENTITLEMENTS = ROOT / "assets" / "entitlements.plist"
+VERSION_PY = ROOT / "src" / "version.py"
 
 CALENDAR_USAGE = {
     "NSCalendarsUsageDescription": (
@@ -23,6 +25,18 @@ CALENDAR_USAGE = {
         "NotifyMe needs full access to your Calendar to read events and create new ones."
     ),
 }
+
+
+def _read_version():
+    """Прочитать __version__ из src/version.py без импорта (без сайд-эффектов)."""
+    try:
+        ns = {}
+        with open(VERSION_PY) as f:
+            exec(compile(f.read(), str(VERSION_PY), "exec"), ns)
+        return str(ns.get("__version__", "0.0.0"))
+    except Exception as e:
+        print(f"WARNING: cannot read version from {VERSION_PY}: {e}")
+        return "0.0.0"
 
 
 def run(cmd, **kwargs):
@@ -62,16 +76,30 @@ def patch_info_plist():
         info = plistlib.load(f)
 
     added = []
+
     for key, value in CALENDAR_USAGE.items():
         if info.get(key) != value:
             info[key] = value
             added.append(key)
+
+    version = _read_version()
+    if info.get("CFBundleShortVersionString") != version:
+        info["CFBundleShortVersionString"] = version
+        added.append("CFBundleShortVersionString")
+    if info.get("CFBundleVersion") != version:
+        info["CFBundleVersion"] = version
+        added.append("CFBundleVersion")
+
+    build_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    info["BuildDate"] = build_date
+    added.append("BuildDate")
 
     with open(info_plist, "wb") as f:
         plistlib.dump(info, f)
 
     if added:
         print(f"✅ Info.plist patched: {', '.join(added)}")
+        print(f"   version={version} build={build_date}")
     else:
         print("✅ Info.plist already up to date")
 
@@ -105,6 +133,9 @@ def main():
         "--hidden-import", "audio_output",
         "--hidden-import", "event_card",
         "--hidden-import", "hotkeys",
+        "--hidden-import", "classify",
+        "--hidden-import", "strings",
+        "--hidden-import", "version",
         "--hidden-import", "AVFoundation",
         "--add-data", f"{ROOT / 'src' / 'audio_output.py'}:.",
     ]

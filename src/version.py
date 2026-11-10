@@ -7,3 +7,4 @@ APP_AUTHOR = "Alexey Chepurnykh"
 APP_LICENSE = "MIT"
 APP_URL = "https://github.com/cheprus/notifyme"
 APP_DESCRIPTION = "macOS menu bar app for upcoming calendar events with reminders"
+APP_DATE = "2026-11-10"  # дата релиза v1.0.0
