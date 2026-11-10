@@ -8,7 +8,12 @@ import sys
 import time
 from pathlib import Path
 
-from AppKit import NSApplication, NSRunningApplication
+from AppKit import (
+    NSApplication,
+    NSRunLoop,
+    NSRunLoopCommonModes,
+    NSRunningApplication,
+)
 from Foundation import NSObject, NSTimer
 
 import audio_output  # noqa: F401
@@ -44,8 +49,6 @@ def _find_pids():
             if "NotifyMe.app/Contents/MacOS/NotifyMe" in args:
                 pids.append(pid)
             elif "src/app.py" in args:
-                # dev-режим. Entry-point `notifyme` тоже может содержать
-                # 'src/app.py' в args в редких случаях — отсекаем по 'bin/notifyme'.
                 if "bin/notifyme" in args:
                     continue
                 pids.append(pid)
@@ -55,10 +58,7 @@ def _find_pids():
 
 
 def _refresh_menu_bar():
-    """Перезапустить SystemUIServer, чтобы убрать фантомные NSStatusItem.
-
-    Безопасно: Finder/Dock/приложения не трогаются, только правый угол меню-бара.
-    """
+    """Перезапустить SystemUIServer, чтобы убрать фантомные NSStatusItem."""
     print("Refreshing menu bar (removing phantom icons)...")
     subprocess.run(
         ["killall", "SystemUIServer"],
@@ -161,12 +161,18 @@ class AppDelegate(NSObject):
         self.status_bar = StatusBarController.alloc().initWithApp_(self)
         self.status_bar.update()
 
-        self.ui_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+        # Таймеры в NSRunLoopCommonModes, чтобы тикали при открытом меню
+        # (NSMenuTrackingRunLoopMode) и при модальных окнах
+        # (NSModalPanelRunLoopMode), а не только в NSDefaultRunLoopMode.
+        self.ui_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
             5.0, self, "tickUI:", None, True
         )
-        self.notify_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+        NSRunLoop.mainRunLoop().addTimer_forMode_(self.ui_timer, NSRunLoopCommonModes)
+
+        self.notify_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
             5.0, self.status_bar, "checkNotifications:", None, True
         )
+        NSRunLoop.mainRunLoop().addTimer_forMode_(self.notify_timer, NSRunLoopCommonModes)
 
     def tickUI_(self, timer):
         if self.status_bar is not None:
