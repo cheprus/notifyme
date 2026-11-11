@@ -1,4 +1,5 @@
 # src/status_bar.py
+import os
 import subprocess
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -75,6 +76,12 @@ def _dedup_events(events):
         seen.add(ev_id)
         result.append(ev)
     return result
+
+
+def _telemost_icon_path():
+    here = os.path.dirname(os.path.abspath(__file__))
+    p = os.path.join(here, "telemost.png")
+    return p if os.path.exists(p) else None
 
 
 class StatusBarController(NSObject):
@@ -246,6 +253,14 @@ class StatusBarController(NSObject):
     def openCalendar_(self, sender):
         subprocess.Popen(["open", "-a", "Calendar"])
 
+    def newTelemostMeeting_(self, sender=None):
+        """Открыть Телемост в браузере."""
+        try:
+            from telemost import open_telemost
+            open_telemost()
+        except Exception as e:
+            print(f"[DEBUG] telemost failed: {e}", flush=True)
+  
     def update(self):
         try:
             now = datetime.now()
@@ -290,8 +305,6 @@ class StatusBarController(NSObject):
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
 
-            # Пункт «Копировать выбранные» всегда на месте — не прыгает при выборе.
-            # Когда ничего не выбрано — disabled (серый).
             n_selected = len(self.selected_ids)
             if n_selected:
                 copy_title = f"📋 Копировать выбранные ({n_selected})"
@@ -329,6 +342,18 @@ class StatusBarController(NSObject):
             open_cal = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_OPEN_CALENDAR, "openCalendar:", "")
             open_cal.setTarget_(self)
             self.menu.addItem_(open_cal)
+
+            telemost_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Telemost", "newTelemostMeeting:", ""
+            )
+            telemost_item.setTarget_(self)
+            icon_path = _telemost_icon_path()
+            if icon_path:
+                t_img = NSImage.alloc().initWithContentsOfFile_(icon_path)
+                if t_img:
+                    t_img.setSize_((16, 16))
+                    telemost_item.setImage_(t_img)
+            self.menu.addItem_(telemost_item)
 
             quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_QUIT, "confirmQuit:", "q")
             quit_item.setTarget_(self)
