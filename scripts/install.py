@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Install NotifyMe.app to /Applications and sign it.
-
-Fixes:
-1. Python.framework symlinks (bundle format is ambiguous).
-2. base_library.zip moved to Resources + symlink.
-3. audio_output.py moved to Resources + symlink.
-4. sounds/ moved to Resources + symlink (codesign can't sign .mp3).
-5. python3.13 renamed to python313 everywhere + symlink (codesign rejects dots).
-"""
+"""Install NotifyMe.app to /Applications and sign it."""
 import glob
 import os
 import shutil
@@ -139,12 +131,11 @@ def fix_audio_output_py(app_path):
     _move_to_resources_and_link(app_path, "audio_output.py")
 
 
-def fix_sounds_dir(app_path):
-    """Переносит sounds/ в Resources и создаёт симлинк.
+def fix_telemost_png(app_path):
+    _move_to_resources_and_link(app_path, "telemost.png")
 
-    Если Resources/sounds уже существует (его положил build.py) —
-    сливаем файлы и удаляем Frameworks/sounds, не создавая sounds/sounds.
-    """
+
+def fix_sounds_dir(app_path):
     fw_sounds = app_path / "Contents" / "Frameworks" / "sounds"
     res_sounds = app_path / "Contents" / "Resources" / "sounds"
 
@@ -160,7 +151,6 @@ def fix_sounds_dir(app_path):
     print(f"  Moving sounds/ to Resources ({n} files)...")
 
     if res_sounds.exists() and res_sounds.is_dir():
-        # уже есть Resources/sounds (build.py) — сливаем без sounds/sounds
         for f in fw_sounds.iterdir():
             target = res_sounds / f.name
             if not target.exists():
@@ -298,6 +288,9 @@ def main():
 
     print("=== Fixing audio_output.py ===")
     fix_audio_output_py(INSTALL_PATH)
+
+    print("=== Fixing telemost.png ===")
+    fix_telemost_png(INSTALL_PATH)
 
     print("=== Fixing sounds/ ===")
     fix_sounds_dir(INSTALL_PATH)
