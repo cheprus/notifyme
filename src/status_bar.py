@@ -100,6 +100,8 @@ class StatusBarController(NSObject):
         self._icon_path = None
         self._hotkey_monitor = None
         self._first_check = True
+        self._telemost_img = None
+        self._quit_img = None
 
         if _HAS_HOTKEYS and install_hotkey is not None and is_accessibility_granted():
             try:
@@ -254,13 +256,13 @@ class StatusBarController(NSObject):
         subprocess.Popen(["open", "-a", "Calendar"])
 
     def newTelemostMeeting_(self, sender=None):
-        """Открыть Телемост в браузере."""
+        """Открыть Телемост в браузере. Пользователь создаёт звонок сам."""
         try:
             from telemost import open_telemost
             open_telemost()
         except Exception as e:
             print(f"[DEBUG] telemost failed: {e}", flush=True)
-  
+
     def update(self):
         try:
             now = datetime.now()
@@ -353,10 +355,18 @@ class StatusBarController(NSObject):
                 if t_img:
                     t_img.setSize_((16, 16))
                     telemost_item.setImage_(t_img)
+                    self._telemost_img = t_img
             self.menu.addItem_(telemost_item)
 
             quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_QUIT, "confirmQuit:", "q")
             quit_item.setTarget_(self)
+            quit_icon_path = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AlertStopIcon.icns"
+            if os.path.exists(quit_icon_path):
+                q_img = NSImage.alloc().initWithContentsOfFile_(quit_icon_path)
+                if q_img:
+                    q_img.setSize_((16, 16))
+                    quit_item.setImage_(q_img)
+                    self._quit_img = q_img
             self.menu.addItem_(quit_item)
 
             self.menu.addItem_(NSMenuItem.separatorItem())

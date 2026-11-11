@@ -16,6 +16,7 @@ ICON = ROOT / "assets" / "myicon.icns"
 SOUNDS_DIR = ROOT / "assets" / "sounds"
 ENTITLEMENTS = ROOT / "assets" / "entitlements.plist"
 VERSION_PY = ROOT / "src" / "version.py"
+TELEMOST_PNG = ROOT / "src" / "telemost.png"
 
 CALENDAR_USAGE = {
     "NSCalendarsUsageDescription": (
@@ -136,9 +137,16 @@ def main():
         "--hidden-import", "classify",
         "--hidden-import", "strings",
         "--hidden-import", "version",
+        "--hidden-import", "telemost",
         "--hidden-import", "AVFoundation",
         "--add-data", f"{ROOT / 'src' / 'audio_output.py'}:.",
     ]
+
+    if TELEMOST_PNG.exists():
+        args.extend(["--add-data", f"{TELEMOST_PNG}:."])
+        print(f"=== Bundling Telemost icon: {TELEMOST_PNG} ===")
+    else:
+        print(f"WARNING: {TELEMOST_PNG} not found — Telemost menu item will have no icon")
 
     if SOUNDS_DIR.exists() and any(SOUNDS_DIR.iterdir()):
         print(f"=== Bundling sounds from {SOUNDS_DIR} ===")
@@ -172,6 +180,13 @@ def main():
     print(f"=== Sounds in bundle: {len(sounds_in_bundle)} ===")
     for s in sounds_in_bundle[:10]:
         print(f"  {s.relative_to(APP_BUNDLE)}")
+
+    if TELEMOST_PNG.exists():
+        found = list(APP_BUNDLE.rglob("telemost.png"))
+        if found:
+            print(f"✅ Telemost icon in bundle: {found[0].relative_to(APP_BUNDLE)}")
+        else:
+            print("WARNING: telemost.png not found in bundle")
 
     print(f"✅ Build OK: {APP_BUNDLE}")
 
