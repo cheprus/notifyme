@@ -94,7 +94,7 @@ install-app: sign
 dmg: sign
 	$(PYTHON) scripts/dmg.py
 
-release: install-app dmg
+release: test build sign install-app dmg
 	@echo ""
 	@echo "✅ Release done: $(DIST_APP), $(INSTALL_APP), $(DMG)"
 
