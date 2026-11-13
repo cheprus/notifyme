@@ -15,6 +15,7 @@ from AppKit import (
     NSView,
 )
 
+from config import CONFIG
 from ui_utils import format_countdown, get_calendar_color, get_event_color, is_work_event, to_display_tz
 
 
@@ -52,6 +53,34 @@ class MenuItemView(ClickableView):
         is_work = is_work_event(event)
         is_neutral = self._is_neutral_group(event, now)
         time_alpha = 0.35 if is_neutral else 1.0
+
+        notify_before = int(CONFIG.get("notify_minutes_before", 5))
+        upcoming_window = int(CONFIG.get("upcoming_highlight_minutes", 5))
+        upcoming_window = min(upcoming_window, 60)
+        start = event.get("start")
+        delta_min = None
+        is_upcoming_soon = False
+        if start is not None:
+            delta_min = (to_display_tz(start) - to_display_tz(now)).total_seconds() / 60.0
+            is_upcoming_soon = 0 <= delta_min <= notify_before + upcoming_window
+        self._is_upcoming_soon = is_upcoming_soon
+
+        try:
+            self.setWantsLayer_(True)
+            if self.layer() is not None:
+                if is_upcoming_soon:
+                    self.layer().setBackgroundColor_(
+                        NSColor.systemRedColor().colorWithAlphaComponent_(0.18).CGColor()
+                    )
+                    self.layer().setCornerRadius_(6.0)
+                    self.layer().setBorderWidth_(1.0)
+                    self.layer().setBorderColor_(
+                        NSColor.systemRedColor().colorWithAlphaComponent_(0.6).CGColor()
+                    )
+                else:
+                    self.layer().setBackgroundColor_(NSColor.clearColor().CGColor())
+        except Exception as e:
+            print(f"[DEBUG] MenuItemView background failed: {e}", flush=True)
 
         stripe_h = height - 8
         stripe_y = 4
@@ -94,7 +123,6 @@ class MenuItemView(ClickableView):
         self.checkbox.setAction_("toggleCheckbox:")
         self.addSubview_(self.checkbox)
 
-        start = event.get("start")
         if start is not None:
             start_disp = to_display_tz(start)
             if show_date:
@@ -117,7 +145,10 @@ class MenuItemView(ClickableView):
         self.time_field.setDrawsBackground_(False)
         self.time_field.setEditable_(False)
         self.time_field.setSelectable_(False)
-        self.time_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(13, 0.3))
+        if is_upcoming_soon:
+            self.time_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(13, 0.4))
+        else:
+            self.time_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(13, 0.3))
         self.time_field.setTextColor_(NSColor.secondaryLabelColor())
         self.time_field.setAlignment_(NSTextAlignmentLeft)
         self.addSubview_(self.time_field)
@@ -133,14 +164,17 @@ class MenuItemView(ClickableView):
         self.countdown_field.setDrawsBackground_(False)
         self.countdown_field.setEditable_(False)
         self.countdown_field.setSelectable_(False)
-        self.countdown_field.setFont_(
-            NSFont.monospacedDigitSystemFontOfSize_weight_(12, 0.5 if is_ongoing else 0.0)
-        )
         if is_ongoing:
+            self.countdown_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(12, 0.5))
+            self.countdown_field.setTextColor_(NSColor.systemRedColor())
+        elif is_upcoming_soon:
+            self.countdown_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(12, 0.5))
             self.countdown_field.setTextColor_(NSColor.systemRedColor())
         elif countdown_text.startswith("−"):
+            self.countdown_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(12, 0.0))
             self.countdown_field.setTextColor_(NSColor.tertiaryLabelColor())
         else:
+            self.countdown_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(12, 0.0))
             self.countdown_field.setTextColor_(NSColor.secondaryLabelColor())
         self.countdown_field.setAlignment_(NSTextAlignmentRight)
         self.addSubview_(self.countdown_field)
@@ -156,10 +190,11 @@ class MenuItemView(ClickableView):
         self.text_field.setDrawsBackground_(False)
         self.text_field.setEditable_(False)
         self.text_field.setSelectable_(False)
-        if is_work:
+        if is_upcoming_soon or is_work:
             self.text_field.setFont_(NSFont.boldSystemFontOfSize_(13))
         else:
             self.text_field.setFont_(NSFont.systemFontOfSize_(13))
+        self.text_field.setTextColor_(NSColor.labelColor())
         self.text_field.setLineBreakMode_(NSLineBreakByTruncatingTail)
         self.text_field.setAlignment_(NSTextAlignmentLeft)
         self.addSubview_(self.text_field)
@@ -192,17 +227,11 @@ class MenuItemView(ClickableView):
         else:
             self.controller.selected_ids.add(ev_id)
             sender.setTitle_("☑")
-        print(
-            f"[DEBUG] toggleCheckbox: id={ev_id!r} "
-            f"selected={sorted(self.controller.selected_ids)}",
-            flush=True,
-        )
-        # Автокопирование: то, что раньше работало без отдельной кнопки
+        print(f"[DEBUG] toggleCheckbox: id={ev_id!r} selected={sorted(self.controller.selected_ids)}", flush=True)
         try:
             self.controller.copy_selected_to_clipboard()
         except Exception as e:
             print(f"[DEBUG] auto-copy after toggle failed: {e}", flush=True)
-        # Пересобрать меню, чтобы пункт «Копировать выбранные (N)» обновился
         try:
             self.controller.update()
         except Exception as e:
