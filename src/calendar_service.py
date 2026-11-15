@@ -2,6 +2,7 @@
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -40,6 +41,20 @@ def _log(msg):
         pass
 
 
+def _ensure_calendar_running():
+    """Убедиться, что Calendar.app запущен, иначе osascript -600."""
+    try:
+        subprocess.run(
+            ["open", "-g", "-a", "Calendar"],
+            check=False, capture_output=True, timeout=5,
+        )
+    except Exception as e:
+        _log(f"ensure Calendar running failed: {e}")
+        return
+    # Дать Calendar.app подняться (не блокируя UI-поток)
+    time.sleep(0.3)
+
+
 def request_calendar_access():
     store = EventKit.EKEventStore.alloc().init()
     status = EventKit.EKEventStore.authorizationStatusForEntityType_(EventKit.EKEntityTypeEvent)
@@ -64,7 +79,6 @@ def request_calendar_access():
 
 
 def list_calendars(store) -> list[dict[str, Any]]:
-    # mypy: result: list[dict[str, Any]]
     result: list[dict[str, Any]] = []
     if store is None:
         return result
@@ -138,9 +152,6 @@ def _fetch_events(store, start_dt, end_dt):
             end = datetime.fromtimestamp(end_date.timeIntervalSince1970())
             url = event.URL()
             url_str = url.absoluteString() if url else ""
-            # EventKit иногда отдаёт URL + title через пробел
-            # ("https://x/issues/1 - Title Text"). Настоящий URL
-            # не содержит пробелов (RFC 3986) — обрезаем по первому.
             url_str = clean_url(url_str)
             location = event.location() or ""
             notes = event.notes() or ""
@@ -152,7 +163,6 @@ def _fetch_events(store, start_dt, end_dt):
             if not url_str:
                 url_str = recover_tracker_url(raw_title, notes)
 
-            # Нормализация при чтении: разделяем tracker (url) и meeting (location).
             tracker_url = url_str
             meeting_url = location if looks_like_url(location) else ""
             if tracker_url or meeting_url:
@@ -295,6 +305,7 @@ def _try_create_event(title, start_dt, end_dt, notes, tracker_url, meeting_url, 
         end tell
     end tell
     '''
+    _ensure_calendar_running()
     r = _run_osascript(script_create)
     if r is None:
         return False, "osascript timeout"
