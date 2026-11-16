@@ -2,7 +2,11 @@
 """Тесты на сборку текста для буфера обмена.
 
 Проверяем чистую функцию _build_selected_text: из selected_ids + списка
-событий собирается текст (без '📅 Event:' префикса).
+событий собирается текст в формате:
+    == title ==
+    📅 date
+    📍 location
+    🔗 url
 """
 import os
 import sys
@@ -48,8 +52,8 @@ def test_one_selected():
     now = _msk_now()
     events = [_mk_event("a", "A", now)]
     text = _build_selected_text({"a"}, events, now)
-    assert "A" in text
-    assert "📅 Event:" not in text
+    assert "== A ==" in text
+    assert "📅 " in text
 
 
 def test_two_selected():
@@ -60,9 +64,8 @@ def test_two_selected():
         _mk_event("b", "B", now + timedelta(minutes=30)),
     ]
     text = _build_selected_text({"a", "b"}, events, now)
-    assert "A" in text
-    assert "B" in text
-    assert "📅 Event:" not in text
+    assert "== A ==" in text
+    assert "== B ==" in text
 
 
 def test_partial_selection():
@@ -74,22 +77,18 @@ def test_partial_selection():
         _mk_event("c", "C", now),
     ]
     text = _build_selected_text({"a", "c"}, events, now)
-    assert "A" in text
-    assert "C" in text
-    assert "B" not in text
-    assert "📅 Event:" not in text
+    assert "== A ==" in text
+    assert "== C ==" in text
+    assert "== B ==" not in text
 
 
 def test_duplicate_ids_in_events():
-    """Если событие с тем же id встречается дважды (upcoming + week),
-    в текст оно не должно попасть дважды."""
     from status_bar import _build_selected_text
     now = _msk_now()
     ev = _mk_event("a", "A", now)
     events = [ev, ev]
     text = _build_selected_text({"a"}, events, now)
-    assert "A" in text
-    assert "📅 Event:" not in text
+    assert "== A ==" in text
 
 
 if __name__ == "__main__":

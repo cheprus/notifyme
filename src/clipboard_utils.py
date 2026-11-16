@@ -7,13 +7,13 @@ from time_utils import format_event_datetime_for_copy
 
 def format_event_for_clipboard(ev, now):
     title = (ev.get("title") or "Untitled").strip()
-    text = f"{title}\n"
+    text = f"== {title} ==\n"
     if ev.get("start"):
-        text += f"{format_event_datetime_for_copy(ev['start'], now)}\n"
-    if ev.get("url"):
-        text += f"🔗 {ev['url']}\n"
+        text += f"📅 {format_event_datetime_for_copy(ev['start'], now)}\n"
     if ev.get("location"):
         text += f"📍 {ev['location']}\n"
+    if ev.get("url"):
+        text += f"🔗 {ev['url']}\n"
     if CONFIG.get("include_notes_in_copy", False):
         notes = (ev.get("notes") or "").strip()
         if notes:

@@ -42,7 +42,6 @@ from ui_utils import (
     to_display_tz,
 )
 
-# Ключ — id(panel)
 _RETAINED_PANELS: dict[int, Any] = {}
 _RETAINED_HANDLERS: dict[int, Any] = {}
 
@@ -138,7 +137,7 @@ def show_event_card(event):
             pass
 
     now = datetime.now()
-    title = (event.get("title") or S.MENU_ROW_UNTITLED).strip()
+    title = (event.get("title") or "Untitled").strip()
     start = event.get("start")
     end = event.get("end")
     location = event.get("location") or ""
@@ -295,13 +294,13 @@ def show_event_card(event):
     def copy_action():
         pb = NSPasteboard.generalPasteboard()
         pb.clearContents()
-        text = S.COPY_EVENT_HEADER.format(title=title) + "\n"
+        text = f"== {title} ==\n"
         if start:
-            text += f"{format_event_datetime_for_copy(start, now)}\n"
-        if url:
-            text += S.COPY_LINK.format(url=url) + "\n"
+            text += f"📅 {format_event_datetime_for_copy(start, now)}\n"
         if location:
             text += S.COPY_LOCATION.format(location=location) + "\n"
+        if url:
+            text += S.COPY_LINK.format(url=url) + "\n"
         pb.setString_forType_(text, "public.utf8-plain-text")
         close_action()
 

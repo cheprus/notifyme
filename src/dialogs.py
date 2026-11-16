@@ -57,8 +57,6 @@ _SNOOZE_TIMERS: list[Any] = []
 
 
 class _AlarmCloser(NSObject):
-    """Delegate: закрытие alarm-панели крестиком → стоп звука + restore accessory."""
-
     def initWithPanelId_state_(self, panel_id, state):
         self = objc.super(_AlarmCloser, self).init()
         if self is None:
@@ -68,6 +66,7 @@ class _AlarmCloser(NSObject):
         return self
 
     def windowWillClose_(self, note):
+        print(f"[DEBUG] _AlarmCloser.windowWillClose_ panel_id={self._panel_id}", flush=True)
         try:
             _stop_sound(self._state)
         except Exception:
@@ -83,6 +82,7 @@ class _AlarmCloser(NSObject):
 
 
 def show_alarm(events_data):
+    print(f"[DEBUG] show_alarm called with {len(events_data)} events: {[e.get('title','?')[:30] for e in events_data]}", flush=True)
     close_all_alarms()
 
     now = datetime.now()
@@ -176,11 +176,13 @@ def show_alarm(events_data):
         print("[DEBUG] Alarm muted (window stays)", flush=True)
 
     def snooze_action():
+        print(f"[DEBUG] snooze_action: {snooze_min} min", flush=True)
         _close_alarm(panel_id)
         _restore_accessory(NSApplication.sharedApplication())
         snooze_secs = snooze_min * 60
 
         def re_alarm():
+            print("[DEBUG] snooze: re-alarm", flush=True)
             try:
                 show_alarm(events_data)
             except Exception as e:
@@ -191,7 +193,6 @@ def show_alarm(events_data):
             snooze_secs, h_re, "performAction:", None, False
         )
         _SNOOZE_TIMERS.append(h_re)
-        print(f"[DEBUG] Snooze: next alarm in {snooze_min} min", flush=True)
 
     row1_y = padding
     row2_y = padding + 40 + 8
@@ -221,12 +222,12 @@ def show_alarm(events_data):
         parts = []
         for ev in events_data:
             title = (ev.get("title") or "Untitled").strip()
-            parts.append(S.COPY_EVENT_HEADER.format(title=title))
-            parts.append(format_event_datetime_for_copy(ev["start"], now))
-            if ev.get("url"):
-                parts.append(S.COPY_LINK.format(url=ev["url"]))
+            parts.append(f"== {title} ==")
+            parts.append(f"📅 {format_event_datetime_for_copy(ev['start'], now)}")
             if ev.get("location"):
                 parts.append(S.COPY_LOCATION.format(location=ev["location"]))
+            if ev.get("url"):
+                parts.append(S.COPY_LINK.format(url=ev["url"]))
             parts.append("")
         text = "\n".join(parts).rstrip() + "\n"
         pb = NSPasteboard.generalPasteboard()
@@ -270,7 +271,7 @@ def show_alarm(events_data):
 
     output_device = CONFIG.get("sound_output_device", "Default")
     sound_path = _resolve_sound_path()
-    print(f"[DEBUG] sound path: {sound_path}, device: {output_device}", flush=True)
+    print(f"[DEBUG] show_alarm: sound={sound_path}, device={output_device}", flush=True)
 
     if sound_path:
         pulse = PulseController.alloc().initWithPath_device_state_(sound_path, output_device, state)
@@ -278,9 +279,10 @@ def show_alarm(events_data):
         pulse.start_(None)
 
     lifetime = _compute_alarm_lifetime(events_data, now)
-    print(f"[DEBUG] Alarm lifetime: {lifetime} sec ({lifetime / 60:.1f} min)", flush=True)
+    print(f"[DEBUG] show_alarm: lifetime={lifetime}s", flush=True)
 
     def auto_close():
+        print(f"[DEBUG] auto_close panel_id={panel_id}", flush=True)
         _close_alarm(panel_id)
         _restore_accessory(NSApplication.sharedApplication())
 
@@ -291,7 +293,6 @@ def show_alarm(events_data):
     )
     state["life_timer"] = life_timer
 
-    # Delegate на крестик: останавливает звук, восстанавливает accessory, чистит state.
     closer = _AlarmCloser.alloc().initWithPanelId_state_(panel_id, state)
     panel.setDelegate_(closer)
     handlers["closer"] = closer
