@@ -20,21 +20,17 @@ from menu_alarm import snooze_presets
 from ..rows import RowLayout, add_helper, row_with_label
 from ..widgets import make_button, make_label, make_popup
 
-# Активные preview:
-#   _PREVIEW_HANDLES — CoreAudio handle от play_on_device
-#   _PREVIEW_PROCS   — subprocess.Popen для afplay-fallback
 _PREVIEW_HANDLES: list = []
 _PREVIEW_PROCS: list = []
 
 
 def _stop_all_previews():
-    """Безопасно остановить все preview, даже если handle от мёртвого устройства."""
     while _PREVIEW_HANDLES:
         h = _PREVIEW_HANDLES.pop()
         try:
             audio_output.stop_playing(h)
         except Exception as e:
-            print(f"[SETTINGS] stop preview handle failed (device disconnected?): {e}", flush=True)
+            print(f"[SETTINGS] stop preview handle failed: {e}", flush=True)
     while _PREVIEW_PROCS:
         p = _PREVIEW_PROCS.pop()
         try:
@@ -45,8 +41,6 @@ def _stop_all_previews():
 
 
 class AlarmTab:
-    """Контроллер одной вкладки. Интерфейс: view(), cleanup()."""
-
     def __init__(self, binding):
         self.binding = binding
         self._callbacks = []
@@ -56,7 +50,6 @@ class AlarmTab:
         self._output_values = []
 
     def cleanup(self):
-        """Остановить все preview (вернуть системный default output)."""
         _stop_all_previews()
 
     def view(self):
@@ -88,12 +81,23 @@ class AlarmTab:
         if current not in presets:
             presets.append(current)
             labels.append(self._minutes_label(current) + " (custom)")
+        current_label = self._minutes_label(current) + ("" if current in NOTIFY_BEFORE_PRESETS else " (custom)")
+        print(
+            f"[DEBUG] alarm._build_notify: current={current}, current_label={current_label!r}, "
+            f"presets={presets}, labels={labels}",
+            flush=True,
+        )
         y = layout.y + layout.row_gap
+
+        def on_notify_before(idx):
+            print(f"[DEBUG] alarm.on_notify_before: idx={idx}, value={presets[idx]}", flush=True)
+            self.binding.set("notify_minutes_before", presets[idx])
+
         popup = make_popup(
             labels,
             NSMakeRect(layout.control_x, y, 220, 26),
-            self._minutes_label(current) + ("" if current in NOTIFY_BEFORE_PRESETS else " (custom)"),
-            lambda idx: self.binding.set("notify_minutes_before", presets[idx]),
+            current_label,
+            on_notify_before,
             self._callbacks,
         )
         content.addSubview_(popup)
@@ -106,12 +110,18 @@ class AlarmTab:
         if current_a not in presets_a:
             presets_a.append(current_a)
             labels_a.append(self._minutes_label(current_a) + " (custom)")
+        current_label_a = self._minutes_label(current_a) + ("" if current_a in NOTIFY_AFTER_PRESETS else " (custom)")
         y = layout.y + layout.row_gap
+
+        def on_notify_after(idx):
+            print(f"[DEBUG] alarm.on_notify_after: idx={idx}, value={presets_a[idx]}", flush=True)
+            self.binding.set("notify_minutes_after", presets_a[idx])
+
         popup_a = make_popup(
             labels_a,
             NSMakeRect(layout.control_x, y, 220, 26),
-            self._minutes_label(current_a) + ("" if current_a in NOTIFY_AFTER_PRESETS else " (custom)"),
-            lambda idx: self.binding.set("notify_minutes_after", presets_a[idx]),
+            current_label_a,
+            on_notify_after,
             self._callbacks,
         )
         content.addSubview_(popup_a)
@@ -129,11 +139,16 @@ class AlarmTab:
             presets = [current]
         labels = [self._minutes_label(m) for m in presets]
         y = layout.y + layout.row_gap
+
+        def on_snooze(idx):
+            print(f"[DEBUG] alarm.on_snooze: idx={idx}, value={presets[idx]}", flush=True)
+            self.binding.set("snooze_minutes", presets[idx])
+
         popup = make_popup(
             labels,
             NSMakeRect(layout.control_x, y, 220, 26),
             self._minutes_label(current) if current in presets else self._minutes_label(presets[0]),
-            lambda idx: self.binding.set("snooze_minutes", presets[idx]),
+            on_snooze,
             self._callbacks,
         )
         content.addSubview_(popup)
@@ -147,11 +162,16 @@ class AlarmTab:
             presets_ac.append(current_ac)
             labels_ac.append(self._minutes_label(current_ac) + " (custom)")
         y = layout.y + layout.row_gap
+
+        def on_auto_close(idx):
+            print(f"[DEBUG] alarm.on_auto_close: idx={idx}, value={presets_ac[idx]}", flush=True)
+            self.binding.set("auto_close_minutes", presets_ac[idx])
+
         popup_ac = make_popup(
             labels_ac,
             NSMakeRect(layout.control_x, y, 220, 26),
             self._minutes_label(current_ac) + ("" if current_ac in AUTO_CLOSE_PRESETS else " (custom)"),
-            lambda idx: self.binding.set("auto_close_minutes", presets_ac[idx]),
+            on_auto_close,
             self._callbacks,
         )
         content.addSubview_(popup_ac)
@@ -168,11 +188,16 @@ class AlarmTab:
             on_presets.append(on_secs)
             on_labels.append(f"{on_secs} sec (custom)")
         y = layout.y + layout.row_gap
+
+        def on_pulse_on(idx):
+            print(f"[DEBUG] alarm.on_pulse_on: idx={idx}, value={on_presets[idx]}", flush=True)
+            self.binding.set("alarm_sound_on_seconds", on_presets[idx])
+
         popup_on = make_popup(
             on_labels,
             NSMakeRect(layout.control_x, y, 220, 26),
             f"{on_secs} sec" + ("" if on_secs in [5, 10, 12, 15, 20, 30] else " (custom)"),
-            lambda idx: self.binding.set("alarm_sound_on_seconds", on_presets[idx]),
+            on_pulse_on,
             self._callbacks,
         )
         content.addSubview_(popup_on)
@@ -185,11 +210,16 @@ class AlarmTab:
             off_presets.append(off_secs)
             off_labels.append(f"{off_secs} sec (custom)")
         y = layout.y + layout.row_gap
+
+        def on_pulse_off(idx):
+            print(f"[DEBUG] alarm.on_pulse_off: idx={idx}, value={off_presets[idx]}", flush=True)
+            self.binding.set("alarm_sound_off_seconds", off_presets[idx])
+
         popup_off = make_popup(
             off_labels,
             NSMakeRect(layout.control_x, y, 220, 26),
             f"{off_secs} sec" + ("" if off_secs in [15, 30, 60, 120, 300] else " (custom)"),
-            lambda idx: self.binding.set("alarm_sound_off_seconds", off_presets[idx]),
+            on_pulse_off,
             self._callbacks,
         )
         content.addSubview_(popup_off)
@@ -205,6 +235,7 @@ class AlarmTab:
         y = layout.y + layout.row_gap
 
         def on_sound_change(i):
+            print(f"[DEBUG] alarm.on_sound_change: idx={i}, value={values[i]}", flush=True)
             _stop_all_previews()
             self.binding.set("sound_file", values[i])
 
@@ -231,16 +262,21 @@ class AlarmTab:
         devices = self._list_outputs()
         current = CONFIG.get("sound_output_device", "Default")
         if current != "Default" and current not in devices:
-            print(f"[SETTINGS] saved output device {current!r} not found, falling back to Default", flush=True)
+            print(f"[SETTINGS] saved output {current!r} not found, reset to Default", flush=True)
             current = "Default"
             self.binding.set("sound_output_device", "Default")
 
         y = layout.y + layout.row_gap
+
+        def on_output(i):
+            print(f"[DEBUG] alarm.on_output: idx={i}, value={devices[i]}", flush=True)
+            self.binding.set("sound_output_device", devices[i])
+
         popup = make_popup(
             devices,
             NSMakeRect(layout.control_x, y, 280, 26),
             current,
-            lambda i: self.binding.set("sound_output_device", devices[i]),
+            on_output,
             self._callbacks,
         )
         content.addSubview_(popup)
@@ -290,15 +326,9 @@ class AlarmTab:
         return devices
 
     def _refresh_output_devices(self):
-        """Пересобрать список устройств. Останавливаем preview: handle от
-        отключённого USB-устройства может ронять CoreAudio."""
         if self._output_popup is None:
             return
-
-        # 1. Стоп всех preview ДО обновления списка — handle от мёртвого
-        #    устройства нельзя оставлять в CoreAudio
         _stop_all_previews()
-
         devices = self._list_outputs()
         current = CONFIG.get("sound_output_device", "Default")
         if current not in devices:
@@ -321,7 +351,6 @@ class AlarmTab:
         print(f"[SETTINGS] output devices refreshed: {devices}", flush=True)
 
     def _toggle_preview(self):
-        """Если что-то играет — стоп. Иначе — запустить."""
         if _PREVIEW_HANDLES or _PREVIEW_PROCS:
             _stop_all_previews()
             print("[SETTINGS] preview stopped", flush=True)

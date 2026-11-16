@@ -12,14 +12,6 @@ DEBOUNCE_SECONDS = 0.3
 
 
 class ConfigBinding:
-    """Один экземпляр на окно.
-
-    set(key, value) — записать в CONFIG и запланировать save_config через 300 мс.
-    flush() — сохранить немедленно (вызывается при закрытии окна).
-    reload_from_config() — заменить CONFIG содержимым другого dict (Import/Reset).
-    force_save() — сохранить немедленно, без дебаунса.
-    """
-
     def __init__(self, on_change: Callable[[], None] | None = None):
         self._on_change = on_change
         self._dirty = False
@@ -30,7 +22,9 @@ class ConfigBinding:
         return CONFIG.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
+        print(f"[DEBUG] binding.set: {key}={value}", flush=True)
         if CONFIG.get(key) == value:
+            print(f"[DEBUG] binding.set: no change ({CONFIG.get(key)})", flush=True)
             return
         CONFIG[key] = value
         self._dirty = True
@@ -58,6 +52,7 @@ class ConfigBinding:
                 pass
             self._timer = None
         if not self._dirty:
+            print("[DEBUG] binding.flush: not dirty", flush=True)
             return
         save_config(CONFIG)
         self._dirty = False
@@ -71,11 +66,6 @@ class ConfigBinding:
                 print(f"[SETTINGS] on_change failed: {e}", flush=True)
 
     def reload_from_config(self) -> None:
-        """Заменить CONFIG содержимым другого dict. Используется в Import / Reset.
-
-        Сам dict не подменяем — обновляем in-place, иначе другие модули
-        (time_utils, classify, dialogs) потеряют ссылку на CONFIG.
-        """
         CONFIG.clear()
         CONFIG.update(DEFAULT_CONFIG)
         save_config(CONFIG)

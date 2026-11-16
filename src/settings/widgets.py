@@ -31,6 +31,7 @@ class _Handler(NSObject):
         return self
 
     def fire_(self, sender):
+        print(f"[DEBUG] _Handler.fire_: sender={sender}", flush=True)
         try:
             self._callback(sender)
         except Exception as e:
@@ -57,12 +58,10 @@ class _ListDataSource(NSObject):
 
 
 def _retain(widget, handler, callbacks):
-    """Держим handler живым — иначе target умрёт и клики пропадут."""
     callbacks.append(handler)
 
 
 def _frame(f):
-    """Принимает tuple(x,y,w,h) или NSRect; возвращает NSRect для AppKit."""
     if isinstance(f, tuple) and len(f) == 4:
         return NSMakeRect(f[0], f[1], f[2], f[3])
     return f
@@ -81,9 +80,9 @@ def make_label(text, frame, bold=False, secondary=True, size=12):
     return f
 
 
-def make_checkbox(text, frame, initial, on_toggle: Callable[[bool], None], callbacks):
+def make_checkbox(text, frame, initial, on_toggle, callbacks):
     btn = NSButton.alloc().initWithFrame_(_frame(frame))
-    btn.setButtonType_(1)  # NSSwitchButton
+    btn.setButtonType_(1)
     btn.setTitle_(text)
     btn.setFont_(NSFont.systemFontOfSize_(13))
     btn.setState_(1 if initial else 0)
@@ -94,8 +93,7 @@ def make_checkbox(text, frame, initial, on_toggle: Callable[[bool], None], callb
     return btn
 
 
-def make_popup(items, frame, current, on_change: Callable[[int], None], callbacks):
-    """items — list[str]. on_change(index)."""
+def make_popup(items, frame, current, on_change, callbacks):
     popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(_frame(frame), False)
     for s in items:
         popup.addItemWithTitle_(s)
@@ -105,10 +103,15 @@ def make_popup(items, frame, current, on_change: Callable[[int], None], callback
     popup.setTarget_(handler)
     popup.setAction_("fire:")
     _retain(popup, handler, callbacks)
+    print(
+        f"[DEBUG] make_popup: items={len(items)}, current={current!r}, "
+        f"action={popup.action()!r}, target={popup.target()!r}",
+        flush=True,
+    )
     return popup
 
 
-def make_textfield(frame, initial, on_change: Callable[[str], None], callbacks):
+def make_textfield(frame, initial, on_change, callbacks):
     tf = NSTextField.alloc().initWithFrame_(_frame(frame))
     tf.setStringValue_(initial)
     tf.setFont_(NSFont.systemFontOfSize_(13))
@@ -119,7 +122,7 @@ def make_textfield(frame, initial, on_change: Callable[[str], None], callbacks):
     return tf
 
 
-def make_stepper(frame, initial, min_val, max_val, on_change: Callable[[int], None], callbacks):
+def make_stepper(frame, initial, min_val, max_val, on_change, callbacks):
     st = NSStepper.alloc().initWithFrame_(_frame(frame))
     st.setMinValue_(min_val)
     st.setMaxValue_(max_val)
@@ -133,7 +136,7 @@ def make_stepper(frame, initial, min_val, max_val, on_change: Callable[[int], No
     return st
 
 
-def make_button(title, frame, on_click: Callable[[], None], callbacks, bold=False):
+def make_button(title, frame, on_click, callbacks, bold=False):
     btn = NSButton.alloc().initWithFrame_(_frame(frame))
     btn.setTitle_(title)
     btn.setBezelStyle_(NSBezelStyleRounded)
@@ -150,11 +153,6 @@ def make_spacer(width, height=1):
 
 
 def make_listbox(frame, items, callbacks):
-    """NSScrollView + NSTableView на одну колонку, без header.
-
-    Возвращает (scroll_view, table_view, data_source).
-    data_source.items — список строк, меняй на месте и зови table_view.reloadData().
-    """
     rect = _frame(frame)
     scroll = NSScrollView.alloc().initWithFrame_(rect)
     scroll.setHasVerticalScroller_(True)
