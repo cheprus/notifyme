@@ -6,8 +6,8 @@ from time_utils import format_event_datetime_for_copy
 
 
 def format_event_for_clipboard(ev, now):
-    title = (ev.get('title') or 'Untitled').strip()
-    text = f"📅 Event: {title}\n"
+    title = (ev.get("title") or "Untitled").strip()
+    text = f"{title}\n"
     if ev.get("start"):
         text += f"{format_event_datetime_for_copy(ev['start'], now)}\n"
     if ev.get("url"):

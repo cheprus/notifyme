@@ -2,8 +2,7 @@
 """Тесты на сборку текста для буфера обмена.
 
 Проверяем чистую функцию _build_selected_text: из selected_ids + списка
-событий собирается текст. Это то, что вызывается из menu-bar при
-«Копировать выбранные».
+событий собирается текст (без '📅 Event:' префикса).
 """
 import os
 import sys
@@ -49,7 +48,8 @@ def test_one_selected():
     now = _msk_now()
     events = [_mk_event("a", "A", now)]
     text = _build_selected_text({"a"}, events, now)
-    assert "📅 Event: A" in text
+    assert "A" in text
+    assert "📅 Event:" not in text
 
 
 def test_two_selected():
@@ -60,10 +60,9 @@ def test_two_selected():
         _mk_event("b", "B", now + timedelta(minutes=30)),
     ]
     text = _build_selected_text({"a", "b"}, events, now)
-    assert "📅 Event: A" in text
-    assert "📅 Event: B" in text
-    # два события → как минимум один \n между ними
-    assert text.count("📅 Event:") == 2
+    assert "A" in text
+    assert "B" in text
+    assert "📅 Event:" not in text
 
 
 def test_partial_selection():
@@ -75,9 +74,10 @@ def test_partial_selection():
         _mk_event("c", "C", now),
     ]
     text = _build_selected_text({"a", "c"}, events, now)
-    assert "📅 Event: A" in text
-    assert "📅 Event: C" in text
-    assert "📅 Event: B" not in text
+    assert "A" in text
+    assert "C" in text
+    assert "B" not in text
+    assert "📅 Event:" not in text
 
 
 def test_duplicate_ids_in_events():
@@ -88,9 +88,8 @@ def test_duplicate_ids_in_events():
     ev = _mk_event("a", "A", now)
     events = [ev, ev]
     text = _build_selected_text({"a"}, events, now)
-    # format_event_for_clipboard на каждое вхождение — если оба попадут, будет 2
-    # сейчас оба попадают (expected behaviour: source не дедуплицируется)
-    assert "📅 Event: A" in text
+    assert "A" in text
+    assert "📅 Event:" not in text
 
 
 if __name__ == "__main__":

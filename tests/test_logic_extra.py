@@ -29,7 +29,8 @@ def test_format_event_for_clipboard():
             "notes": "Описание",
         }
         s = format_event_for_clipboard(ev, now)
-        assert "📅 Event: MTS. #17702" in s
+        assert "MTS. #17702" in s
+        assert "📅 Event:" not in s
         assert "🔗 https://support.igtel.ru/issues/17702" in s
         assert "📍 https://mts-link.ru/j/1" in s
         assert "📝" not in s
@@ -39,7 +40,8 @@ def test_format_event_for_clipboard():
         assert "📝 Описание" in s
 
         s = format_event_for_clipboard({"title": "X"}, now)
-        assert "📅 Event: X" in s
+        assert "X" in s
+        assert "📅 Event:" not in s
         assert "🔗" not in s
         assert "📍" not in s
     finally:
@@ -55,35 +57,30 @@ def test_get_status_color():
 
     from color_utils import get_status_color
 
-    # пусто
     text, rgb = get_status_color([])
     assert text == "No events"
     assert rgb == (0.2, 0.8, 0.2)
 
     now = dt.now()
-    # встреча через 2 мин — красный
     start = now + timedelta(minutes=2)
     end = start + timedelta(minutes=30)
     text, rgb = get_status_color([{"start": start, "end": end}])
     assert "In" in text
-    assert rgb[0] > 0.9  # красный
+    assert rgb[0] > 0.9
 
-    # встреча через 20 мин — оранжевый
     start = now + timedelta(minutes=20)
     end = start + timedelta(minutes=30)
     text, rgb = get_status_color([{"start": start, "end": end}])
     assert "In" in text
 
-    # встреча через 3 часа — жёлто-оранжевый (не синий!)
     start = now + timedelta(hours=3)
     end = start + timedelta(minutes=30)
     text, rgb = get_status_color([{"start": start, "end": end}])
     assert "In" in text
-    assert rgb[0] > 0.9   # красный канал
-    assert rgb[1] > 0.5   # зелёный канал (жёлтый = красный + зелёный)
-    assert rgb[2] < 0.5   # синий канал низкий (не синий)
+    assert rgb[0] > 0.9
+    assert rgb[1] > 0.5
+    assert rgb[2] < 0.5
 
-    # идёт сейчас — ongoing
     start = now - timedelta(minutes=5)
     end = now + timedelta(minutes=30)
     text, rgb = get_status_color([{"start": start, "end": end}])
@@ -96,18 +93,15 @@ def test_get_event_color():
     from color_utils import get_event_color
 
     now = dt.now()
-    # ongoing — красный
     ev = {"start": now - timedelta(minutes=5), "end": now + timedelta(minutes=30)}
     c = get_event_color(ev, now)
     assert c.redComponent() > 0.9
 
-    # tomorrow — синий
     tomorrow = (now + timedelta(days=1)).replace(hour=10, minute=0)
     ev = {"start": tomorrow, "end": tomorrow + timedelta(hours=1)}
     c = get_event_color(ev, now)
     assert c.blueComponent() > 0.5
 
-    # week — нейтральный
     next_week = now + timedelta(days=5)
     ev = {"start": next_week, "end": next_week + timedelta(hours=1)}
     c = get_event_color(ev, now)

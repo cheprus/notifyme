@@ -2,6 +2,7 @@
 from datetime import datetime
 from typing import Any
 
+import objc
 from AppKit import (
     NSApplication,
     NSBackingStoreBuffered,
@@ -22,7 +23,7 @@ from AppKit import (
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskTitled,
 )
-from Foundation import NSTimer
+from Foundation import NSObject, NSTimer
 
 import strings as S
 from alarm_utils import (
@@ -52,8 +53,33 @@ def _snooze_minutes():
         return 5
 
 
-# Нужно удерживать snooze-таймеры, иначе NSTimer будет собран GC.
 _SNOOZE_TIMERS: list[Any] = []
+
+
+class _AlarmCloser(NSObject):
+    """Delegate: закрытие alarm-панели крестиком → стоп звука + restore accessory."""
+
+    def initWithPanelId_state_(self, panel_id, state):
+        self = objc.super(_AlarmCloser, self).init()
+        if self is None:
+            return None
+        self._panel_id = panel_id
+        self._state = state
+        return self
+
+    def windowWillClose_(self, note):
+        try:
+            _stop_sound(self._state)
+        except Exception:
+            pass
+        try:
+            _restore_accessory(NSApplication.sharedApplication())
+        except Exception:
+            pass
+        try:
+            _close_alarm(self._panel_id)
+        except Exception:
+            pass
 
 
 def show_alarm(events_data):
@@ -73,7 +99,7 @@ def show_alarm(events_data):
         NSMakeRect(0, 0, width, height),
         NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
         NSBackingStoreBuffered,
-        False
+        False,
     )
     panel.setTitle_("")
     panel.setLevel_(NSScreenSaverWindowLevel)
@@ -96,7 +122,7 @@ def show_alarm(events_data):
     first_location = None
 
     for ev in events_data:
-        title_text = (ev.get("title") or S.MENU_ROW_UNTITLED).strip()
+        title_text = (ev.get("title") or "Untitled").strip()
 
         title_field = NSTextField.alloc().initWithFrame_(
             NSMakeRect(padding, y - 22, width - padding * 2, 22)
@@ -143,7 +169,7 @@ def show_alarm(events_data):
     def mute_action():
         _stop_sound(state)
         try:
-            btn_mute.setTitle_(S.ALARM_BTN_MUTED)
+            btn_mute.setTitle_("🔇 Заглушено")
             btn_mute.setEnabled_(False)
         except Exception:
             pass
@@ -194,13 +220,13 @@ def show_alarm(events_data):
     def copy_action():
         parts = []
         for ev in events_data:
-            title = (ev.get('title') or S.MENU_ROW_UNTITLED).strip()
+            title = (ev.get("title") or "Untitled").strip()
             parts.append(S.COPY_EVENT_HEADER.format(title=title))
-            parts.append(format_event_datetime_for_copy(ev['start'], now))
-            if ev.get('url'):
-                parts.append(S.COPY_LINK.format(url=ev['url']))
-            if ev.get('location'):
-                parts.append(S.COPY_LOCATION.format(location=ev['location']))
+            parts.append(format_event_datetime_for_copy(ev["start"], now))
+            if ev.get("url"):
+                parts.append(S.COPY_LINK.format(url=ev["url"]))
+            if ev.get("location"):
+                parts.append(S.COPY_LOCATION.format(location=ev["location"]))
             parts.append("")
         text = "\n".join(parts).rstrip() + "\n"
         pb = NSPasteboard.generalPasteboard()
@@ -226,7 +252,11 @@ def show_alarm(events_data):
     snooze_w = 170
     row2_right -= snooze_w
     h_snooze = DialogHandler.alloc().initWithAction_(snooze_action)
-    btn_snooze = _make_button(S.ALARM_BTN_SNOOZE.format(minutes=snooze_min), NSMakeRect(row2_right, row2_y, snooze_w, btn_h), h_snooze)
+    btn_snooze = _make_button(
+        S.ALARM_BTN_SNOOZE.format(minutes=snooze_min),
+        NSMakeRect(row2_right, row2_y, snooze_w, btn_h),
+        h_snooze,
+    )
     content.addSubview_(btn_snooze)
     handlers["snooze"] = h_snooze
     row2_right -= gap
@@ -248,7 +278,7 @@ def show_alarm(events_data):
         pulse.start_(None)
 
     lifetime = _compute_alarm_lifetime(events_data, now)
-    print(f"[DEBUG] Alarm lifetime: {lifetime} sec ({lifetime/60:.1f} min)", flush=True)
+    print(f"[DEBUG] Alarm lifetime: {lifetime} sec ({lifetime / 60:.1f} min)", flush=True)
 
     def auto_close():
         _close_alarm(panel_id)
@@ -260,6 +290,11 @@ def show_alarm(events_data):
         lifetime, h_auto, "performAction:", None, False
     )
     state["life_timer"] = life_timer
+
+    # Delegate на крестик: останавливает звук, восстанавливает accessory, чистит state.
+    closer = _AlarmCloser.alloc().initWithPanelId_state_(panel_id, state)
+    panel.setDelegate_(closer)
+    handlers["closer"] = closer
 
     _RETAINED_PANELS[panel_id] = panel
     _RETAINED_HANDLERS[panel_id] = handlers
