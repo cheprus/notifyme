@@ -6,14 +6,14 @@ macOS menu bar app for upcoming calendar events with reminders.
 
 - Menu bar countdown to the next event; alarm window on top with Snooze.
 - Event card: title, calendar, start/end, location, URL, notes.
-- Checkbox on each event: **click → selection copied to clipboard** (all selected).
-- Two color stripes per row: time urgency + calendar importance; work events bold.
+- Checkbox on each event: click → selection copied to clipboard.
+- Upcoming events highlighted in red in the menu.
 - Settings window (Alarm / Conferences / Calendar / System / About). Changes applied live.
 - Separate timezones for display and clipboard.
 - Configurable sound, audio output, target calendar.
 - Global hotkey `Cmd+Ctrl+N` → New event from clipboard.
 - DND until current event ends.
-- CLI: `notifyme start|stop|restart|refresh`.
+- CLI: `notifyme start|stop|restart|refresh|status`.
 
 ## Install
 
@@ -39,10 +39,11 @@ Click the menu bar icon. Each row: checkbox, time, title, countdown, stripes.
 
 - **Click row** → event card.
 - **Click checkbox** → select event; selection auto-copied to clipboard.
-- **`📋 Копировать выбранные (N)`** — appears when selection is non-empty (manual re-copy).
+- **`📋 Копировать выбранные (N)`** — appears when selection is non-empty.
 - **`⚙️ Settings`** (`Cmd+,`) → settings window.
 - **`🔕 DND ...`** — toggle DND until current event ends.
 - **`📅 Open Calendar`** — launch Calendar.app.
+- **`Telemost`** — open https://telemost.yandex.ru/ (link copied by Telemost).
 - **`Quit`** (`Cmd+Q`).
 
 ### Settings
@@ -51,9 +52,21 @@ Click the menu bar icon. Each row: checkbox, time, title, countdown, stripes.
 - **Conferences**: tracker / meeting domain lists with `+`, `−`, `Reset to known`, `Undo`.
 - **Calendar**: target calendar, display/copy timezone, work calendar hints.
 - **System**: hotkey status + Open Accessibility, DND toggle, Include Notes, Clear History / Clear Last, Export / Import / Reset, Open log, Restart.
-- **About**: name, version, author, license, home URL.
+- **About**: name, version, build, author, license, home URL.
 
 All settings auto-saved (debounce 300 ms) and applied without restart.
+
+### Copy format
+
+```
+== Event title ==
+📅 Today, 10:30 MSK
+📍 https://meeting/link
+🔗 https://tracker/link
+📝 notes (if "Include Notes in Copy" is on)
+```
+
+`📍` present only if `location` is set, `🔗` only if `url` is set.
 
 ## Hotkey
 
@@ -72,6 +85,7 @@ notifyme start     # launch /Applications/NotifyMe.app (or activate if running)
 notifyme stop      # kill all processes; refreshes menu bar
 notifyme restart   # stop + start
 notifyme refresh   # refresh menu bar (remove phantom icons after kill -9)
+notifyme status    # processes, lock file, SystemUIServer, version, build, install path
 notifyme --add-event
 ```
 
@@ -92,6 +106,10 @@ notifyme --add-event
 **Hotkey does not work.** See "Hotkey". Requires Accessibility, and restart after granting.
 
 **Sound preview plays in wrong device.** In Alarm tab, pick Output and press `↻` after plugging/unplugging devices. On Preview the system default is temporarily switched and restored on stop.
+
+**Event creation fails with `-600`.** Calendar.app is launched automatically before AppleScript; if it still fails, open Calendar.app manually.
+
+**Settings window does not open.** Run `notifyme status` and check `/tmp/notifyme.log` for the latest `[DEBUG]` lines.
 
 ## Code signing
 
