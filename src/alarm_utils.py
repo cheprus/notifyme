@@ -19,7 +19,6 @@ from Foundation import NSObject, NSTimer
 import audio_output
 from config import CONFIG
 
-# Ключ — id(panel), значение — NSObject/dict/NSTimer
 _RETAINED_PANELS: dict[int, Any] = {}
 _RETAINED_HANDLERS: dict[int, Any] = {}
 _RETAINED_STATE: dict[int, Any] = {}
@@ -97,12 +96,6 @@ class DialogHandler(NSObject):
 
 
 class PulseController(NSObject):
-    """Проигрывает звук alarm на выбранном устройстве, не трогая системный дефолт.
-
-    Если play_on_device недоступен (устройство не найдено, AVAudioEngine не привязался),
-    фолбэк — NSSound на системном дефолте (без переключения).
-    """
-
     def initWithPath_device_state_(self, path, device_name, state):
         self = objc.super(PulseController, self).init()
         if self is None:
@@ -123,8 +116,6 @@ class PulseController(NSObject):
             self._handles.append(handle)
             self._schedule_off()
             return
-
-        # Фолбэк: NSSound на системном дефолте (без переключения устройства)
         print(f"[DEBUG] pulse fallback to NSSound ({self._device!r})", flush=True)
         snd = NSSound.alloc().initWithContentsOfFile_byReference_(self._path, True)
         if snd:
@@ -199,6 +190,7 @@ def _stop_sound(state):
 
 
 def _close_alarm(panel_id):
+    print(f"[DEBUG] _close_alarm panel_id={panel_id}", flush=True)
     state = _RETAINED_STATE.pop(panel_id, None)
     if state:
         _stop_sound(state)
@@ -226,10 +218,6 @@ def close_all_alarms():
 
 def _bring_to_front(panel):
     app = NSApplication.sharedApplication()
-    try:
-        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
-    except Exception:
-        pass
     try:
         app.activateIgnoringOtherApps_(True)
     except Exception:

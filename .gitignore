@@ -31,3 +31,7 @@ icon.iconset/
 # pip install -e .
 *.egg-info/
 .build-stamp
+
+# local / not part of project
+src-legacy2/
+scripts/save_estimate.py

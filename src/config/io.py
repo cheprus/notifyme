@@ -2,8 +2,8 @@
 import json
 import os
 
+from . import paths
 from .defaults import DEFAULT_CONFIG
-from .paths import CONFIG_FILE, ensure_dir
 
 
 def _coerce_types(merged: dict) -> dict:
@@ -33,10 +33,10 @@ def _coerce_types(merged: dict) -> dict:
 
 
 def load_config():
-    ensure_dir()
-    if os.path.exists(CONFIG_FILE):
+    paths.ensure_dir()
+    if os.path.exists(paths.CONFIG_FILE):
         try:
-            with open(CONFIG_FILE) as f:
+            with open(paths.CONFIG_FILE) as f:
                 data = json.load(f)
             merged = {**DEFAULT_CONFIG, **data}
             return _coerce_types(merged)
@@ -47,9 +47,9 @@ def load_config():
 
 
 def save_config(config):
-    ensure_dir()
+    paths.ensure_dir()
     try:
-        with open(CONFIG_FILE, "w") as f:
+        with open(paths.CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4, ensure_ascii=False)
     except Exception:
         pass

@@ -19,6 +19,8 @@ KNOWN_TRACKER_DOMAINS = [
 
 KNOWN_MEETING_DOMAINS = [
     "mts-link.ru",
+    "team.do.orbitkom.ru",
+    "telemost.yandex.ru",
     "zoom.us",
     "meet.google.com",
     "teams.microsoft.com",
