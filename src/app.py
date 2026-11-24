@@ -23,6 +23,7 @@ from calendar_service import request_calendar_access
 LOCK_FILE = Path("/tmp/notifyme.lock")
 BUNDLE_ID = "com.chep.notifyme"
 INSTALLED_APP = Path("/Applications/NotifyMe.app")
+SYSTEM_UI_SERVER = "/System/Library/CoreServices/SystemUIServer.app"
 
 
 def _find_pids():
@@ -51,19 +52,50 @@ def _find_pids():
     return sorted(set(pids))
 
 
+def _system_ui_server_alive():
+    r = subprocess.run(["pgrep", "-x", "SystemUIServer"], capture_output=True)
+    return r.returncode == 0
+
+
+def _ensure_system_ui_server():
+    if _system_ui_server_alive():
+        return True
+    time.sleep(1.0)
+    if _system_ui_server_alive():
+        return True
+    print("SystemUIServer is not running, launching...")
+    try:
+        subprocess.Popen([SYSTEM_UI_SERVER])
+    except Exception as e:
+        print(f"  open failed: {e}")
+        try:
+            subprocess.Popen([
+                "/System/Library/CoreServices/SystemUIServer.app/Contents/MacOS/SystemUIServer",
+            ])
+        except Exception as e2:
+            print(f"  direct launch failed: {e2}")
+            return False
+    for _ in range(50):
+        time.sleep(0.1)
+        if _system_ui_server_alive():
+            time.sleep(0.5)
+            return True
+    print("SystemUIServer did not start")
+    return False
+
+
 def _refresh_menu_bar():
     print("Refreshing menu bar (removing phantom icons)...")
     subprocess.run(["killall", "SystemUIServer"], check=False, capture_output=True)
     for _ in range(50):
         time.sleep(0.1)
-        r = subprocess.run(["pgrep", "-x", "SystemUIServer"], capture_output=True)
-        if r.returncode == 0:
-            break
-    time.sleep(0.5)
+        if _system_ui_server_alive():
+            time.sleep(0.5)
+            return
+    _ensure_system_ui_server()
 
 
 def _read_build_date():
-    """BuildDate из Info.plist установленного .app, fallback — из version.py."""
     try:
         info_plist = INSTALLED_APP / "Contents" / "Info.plist"
         if info_plist.exists():
@@ -81,9 +113,7 @@ def _read_build_date():
 
 
 def _status():
-    """Показать состояние NotifyMe: процессы, SystemUIServer, версия, build."""
     print("=== NotifyMe status ===")
-
     pids = _find_pids()
     if pids:
         print(f"Processes: {', '.join(map(str, pids))}")
@@ -106,14 +136,10 @@ def _status():
     else:
         print(f"Lock file: {LOCK_FILE} (absent)")
 
-    try:
-        r = subprocess.run(["pgrep", "-x", "SystemUIServer"], capture_output=True)
-        if r.returncode == 0:
-            print("SystemUIServer: running")
-        else:
-            print("SystemUIServer: NOT running (NSStatusBar will hang!)")
-    except Exception as e:
-        print(f"SystemUIServer: check failed ({e})")
+    if _system_ui_server_alive():
+        print("SystemUIServer: running")
+    else:
+        print("SystemUIServer: NOT running (NSStatusBar will hang!)")
 
     try:
         import version
@@ -123,6 +149,13 @@ def _status():
 
     bd, source = _read_build_date()
     print(f"Build date: {bd} (from {source})")
+
+    try:
+        from config.paths import CONFIG_FILE, CONFIG_DIR
+        print(f"CONFIG_DIR: {CONFIG_DIR}")
+        print(f"CONFIG_FILE: {CONFIG_FILE}")
+    except Exception as e:
+        print(f"CONFIG path: unknown ({e})")
 
     if INSTALLED_APP.exists():
         print(f"Installed: {INSTALLED_APP}")
@@ -165,6 +198,7 @@ def _start():
     if not INSTALLED_APP.exists():
         print(f"ERROR: {INSTALLED_APP} not found. Run `make release` first.")
         return 1
+    _ensure_system_ui_server()
     if _find_pids():
         print("NotifyMe is already running, activating existing instance...")
         subprocess.run(["open", "-a", str(INSTALLED_APP)], check=False)
@@ -211,12 +245,14 @@ class AppDelegate(NSObject):
         self.status_bar = StatusBarController.alloc().initWithApp_(self)
         print("[DEBUG] StatusBarController created", flush=True)
 
+        # ui_timer — только иконка/заголовок (без меню, без EventKit).
         self.ui_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
             5.0, self, "tickUI:", None, True
         )
         NSRunLoop.mainRunLoop().addTimer_forMode_(self.ui_timer, NSRunLoopCommonModes)
         print("[DEBUG] ui_timer created", flush=True)
 
+        # notify_timer — checkNotifications_ (EventKit + alarm), независимо от меню.
         self.notify_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
             5.0, self.status_bar, "checkNotifications:", None, True
         )
@@ -242,7 +278,7 @@ class AppDelegate(NSObject):
     def tickUI_(self, timer):
         try:
             if self.status_bar is not None:
-                self.status_bar.update()
+                self.status_bar._update_icon_and_title()
         except Exception as e:
             import traceback
             print(f"[DEBUG] tickUI_ error: {e}", flush=True)

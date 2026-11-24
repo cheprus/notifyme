@@ -86,33 +86,17 @@ def _telemost_icon_path():
 
 class StatusBarController(NSObject):
     def initWithApp_(self, app):
-        print("[DEBUG] StatusBarController.initWithApp_ start", flush=True)
         self = objc.super(StatusBarController, self).init()
         if self is None:
             return None
         self.app = app
-
-        print("[DEBUG] initWithApp: statusItem", flush=True)
         self.status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(NSVariableStatusItemLength)
-
-        print("[DEBUG] initWithApp: menu", flush=True)
         self.menu = NSMenu.alloc().init()
-
-        print("[DEBUG] initWithApp: button", flush=True)
         button = self.status_item.button()
-        print(f"[DEBUG] initWithApp: button={button}", flush=True)
         if button is not None:
-            try:
-                button.setTarget_(self)
-                button.setAction_("statusItemClicked:")
-                print("[DEBUG] initWithApp: button configured", flush=True)
-            except Exception as e:
-                print(f"[DEBUG] initWithApp: button config failed: {e}", flush=True)
-
-        print("[DEBUG] initWithApp: load_state", flush=True)
+            button.setTarget_(self)
+            button.setAction_("statusItemClicked:")
         self.notified_ids, self._state_last_id = load_state()
-        print("[DEBUG] initWithApp: state loaded", flush=True)
-
         self.is_checking = False
         self.selected_ids = set()
         self._icon_cache_key = None
@@ -121,6 +105,8 @@ class StatusBarController(NSObject):
         self._first_check = True
         self._telemost_img = None
         self._quit_img = None
+        self._events_cache = None
+        self._events_cache_time = 0.0
 
         if _HAS_HOTKEYS and install_hotkey is not None and is_accessibility_granted():
             try:
@@ -131,7 +117,6 @@ class StatusBarController(NSObject):
         else:
             print("[DEBUG] hotkey not installed: Accessibility not granted", flush=True)
 
-        print("[DEBUG] StatusBarController.initWithApp_ done", flush=True)
         return self
 
     def statusItemClicked_(self, sender=None):
@@ -143,15 +128,22 @@ class StatusBarController(NSObject):
             print(f"[DEBUG] statusItemClicked update failed: {e}", flush=True)
             traceback.print_exc()
         try:
-            print(f"[DEBUG] menu items: {len(self.menu.itemArray())}", flush=True)
-        except Exception:
-            pass
-        try:
             self.status_item.popUpStatusItemMenu_(self.menu)
         except Exception as e:
             import traceback
             print(f"[DEBUG] popUpStatusItemMenu_ failed: {e}", flush=True)
             traceback.print_exc()
+
+    def _get_events_cached(self):
+        import time as _t
+        now = _t.time()
+        if self._events_cache is not None and now - self._events_cache_time < 30:
+            return self._events_cache
+        events = get_upcoming_events(self.app.store)
+        week_events = get_week_events(self.app.store)
+        self._events_cache = (events, week_events)
+        self._events_cache_time = now
+        return self._events_cache
 
     def handleHotkey_(self, sender=None):
         print("[DEBUG] Hotkey Cmd+Ctrl+N triggered", flush=True)
@@ -174,8 +166,7 @@ class StatusBarController(NSObject):
 
     def copy_selected_to_clipboard(self):
         now = datetime.now()
-        events = get_upcoming_events(self.app.store)
-        week_events = get_week_events(self.app.store)
+        events, week_events = self._get_events_cached()
         all_events = _dedup_events(events + week_events)
         text = _build_selected_text(self.selected_ids, all_events, now)
 
@@ -225,6 +216,8 @@ class StatusBarController(NSObject):
             self._reinstall_hotkey_if_needed()
         except Exception as e:
             print(f"[DEBUG] reinstall hotkey failed: {e}", flush=True)
+        self._events_cache = None
+        self._events_cache_time = 0.0
 
     def _reinstall_hotkey_if_needed(self):
         if not _HAS_HOTKEYS or install_hotkey is None:
@@ -260,7 +253,7 @@ class StatusBarController(NSObject):
             save_config(CONFIG)
             return
         now = datetime.now()
-        events = get_upcoming_events(self.app.store)
+        events, _ = self._get_events_cached()
         ongoing = [ev for ev in events if ev["start"] <= now <= ev["end"]]
         if not ongoing:
             return
@@ -298,9 +291,10 @@ class StatusBarController(NSObject):
             print(f"[DEBUG] telemost failed: {e}", flush=True)
 
     def _update_icon_and_title(self):
+        """Обновить только иконку и заголовок в меню-баре. Без меню, без MenuItemView."""
         try:
             now = datetime.now()
-            events = get_upcoming_events(self.app.store)
+            events, _ = self._get_events_cached()
             status_text, color = get_status_color(events)
             cache_key = (color, 1.0, False, False)
             if cache_key != self._icon_cache_key:
@@ -322,15 +316,14 @@ class StatusBarController(NSObject):
             print(f"[DEBUG] _update_icon_and_title failed: {e}", flush=True)
 
     def update(self):
+        """Перестроить меню. Вызывается только из statusItemClicked_ и delayedUpdate_."""
         self._update_icon_and_title()
         try:
             now = datetime.now()
-            events = get_upcoming_events(self.app.store)
-            week_events = get_week_events(self.app.store)
+            events, week_events = self._get_events_cached()
             print(f"[DEBUG] update: {len(events)} events, {len(week_events)} week", flush=True)
 
             self.menu.removeAllItems()
-            print("[DEBUG] update: menu cleared", flush=True)
 
             def add_section(title):
                 item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
@@ -354,7 +347,6 @@ class StatusBarController(NSObject):
             add_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_NEW_EVENT, "addToCalendar:", "")
             add_item.setTarget_(self)
             self.menu.addItem_(add_item)
-            print("[DEBUG] update: added New Event", flush=True)
 
             n_selected = len(self.selected_ids)
             copy_title = f"📋 Копировать выбранные ({n_selected})" if n_selected else "📋 Копировать выбранные"
@@ -366,7 +358,6 @@ class StatusBarController(NSObject):
             settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.SETTINGS_TITLE, "openSettings:", ",")
             settings_item.setTarget_(self)
             self.menu.addItem_(settings_item)
-            print("[DEBUG] update: added Settings", flush=True)
 
             dnd = _parse_dnd_until()
             if dnd is not None and dnd > now:
@@ -409,7 +400,6 @@ class StatusBarController(NSObject):
                     quit_item.setImage_(q_img)
                     self._quit_img = q_img
             self.menu.addItem_(quit_item)
-            print("[DEBUG] update: added fixed items", flush=True)
 
             self.menu.addItem_(NSMenuItem.separatorItem())
 
@@ -433,7 +423,6 @@ class StatusBarController(NSObject):
                 add_section(S.MENU_SECTION_FINISHED)
                 for ev in finished:
                     add_event_item(ev)
-            print(f"[DEBUG] update: events added, total menu items={len(self.menu.itemArray())}", flush=True)
 
             if not events:
                 item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(S.MENU_NO_EVENTS_TODAY, None, "")
@@ -461,7 +450,7 @@ class StatusBarController(NSObject):
                     )
                     item.setEnabled_(False)
                     self.menu.addItem_(item)
-            print(f"[DEBUG] update: final menu items={len(self.menu.itemArray())}", flush=True)
+            print(f"[DEBUG] update: menu items={len(self.menu.itemArray())}", flush=True)
         except Exception as e:
             import traceback
             print(f"[DEBUG] update failed: {e}", flush=True)
@@ -476,7 +465,7 @@ class StatusBarController(NSObject):
             if dnd is not None and dnd > datetime.now():
                 return
             now = datetime.now()
-            events = get_upcoming_events(self.app.store)
+            events, _ = self._get_events_cached()
             notify_before = CONFIG.get("notify_minutes_before", 5)
             notify_after = CONFIG.get("notify_minutes_after", 2)
             auto_close_minutes = CONFIG.get("auto_close_minutes", 15)
