@@ -1,9 +1,5 @@
 # src/classify.py
-"""Классификация ссылок: tracker vs meeting.
-
-Вынесено из calendar_service, чтобы _fetch_events, add_event_window,
-event_card и будущие Settings-вкладки использовали один источник правды.
-"""
+"""Классификация ссылок: tracker vs meeting."""
 
 import re
 
@@ -50,6 +46,8 @@ _MEETING_PATTERNS = [
     r"\bwhereby\.com",
     r"\bjitsi",
     r"\bmeet\.jivo\.ru",
+    r"\bteam\.do\.orbitkom\.ru",
+    r"\btelemost\.yandex\.ru",
     r"/j/\d+",
     r"/session/\d+",
     r"/meet/",
@@ -70,16 +68,9 @@ def _custom_patterns(key):
 
 
 def clean_url(s):
-    """Обрезать URL по первому пробелу.
-
-    EventKit иногда отдаёт `event.URL()` как "https://x/issues/1 - Title Text".
-    Настоящий URL не содержит пробелов (RFC 3986), всё после первого пробела —
-    это уже title, который EventKit приклеил к URL.
-    """
     if not s:
         return ""
     s = s.strip()
-    # обрезать по первому whitespace
     return s.split(None, 1)[0] if s else ""
 
 
@@ -90,7 +81,6 @@ def looks_like_url(s):
 
 
 def looks_like_clean_url(s):
-    """Строгий вариант: URL без пробелов."""
     if not s:
         return False
     return bool(_URL_STRICT_RE.match(s.strip()))
@@ -99,7 +89,6 @@ def looks_like_clean_url(s):
 # ---------- Публичные функции ----------
 
 def normalize_title(title):
-    """Заменить /issues/<N> на #N, схлопнуть пробелы."""
     if not title:
         return title
     t = title.strip()
@@ -109,7 +98,6 @@ def normalize_title(title):
 
 
 def recover_tracker_url(title, notes):
-    """Восстановить tracker-URL из title/notes по custom-доменам или base_url."""
     haystack = " ".join(filter(None, [title or "", notes or ""]))
 
     for domain in CONFIG.get("custom_tracker_domains", []) or []:
@@ -135,7 +123,6 @@ def recover_tracker_url(title, notes):
 
 
 def classify_url(url):
-    """'meeting' | 'tracker' | 'unknown'."""
     if not url:
         return "unknown"
     u = url.lower().strip()
@@ -158,14 +145,6 @@ def classify_url(url):
 
 
 def split_links(tracker_url, meeting_url, notes):
-    """Разделить (url, location) на (tracker, meeting).
-
-    - Если url содержит пробелы (URL + title из EventKit) — обрезать.
-    - Если оба поля заполнены и перепутаны — свапнуть.
-    - Если одно пустое — вытащить из notes.
-    - Если url классифицируется как meeting — перенести в meeting.
-    - Если location классифицируется как tracker — перенести в tracker.
-    """
     url_field = clean_url(tracker_url or "")
     location_field = clean_url(meeting_url or "")
 
