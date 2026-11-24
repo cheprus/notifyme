@@ -4,7 +4,7 @@ from typing import Any
 from .domains import KNOWN_MEETING_DOMAINS, KNOWN_TRACKER_DOMAINS
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "notify_minutes_before": 5,
+    "notify_minutes_before": 2,
     "notify_minutes_after": 2,
     "snooze_minutes": 5,
     "auto_close_minutes": 15,
